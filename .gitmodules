@@ -1,0 +1,3 @@
+[submodule "src/fmj"]
+	path = src/fmj
+	url = https://github.com/godratio/FullMetalJacket.git
