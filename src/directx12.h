@@ -15,7 +15,6 @@
 
 #include "RenderPipelineState.h"
 
-
 using namespace Microsoft::WRL;
 
 // TODO(Ray Garner): Make a more sophistacated threshold here this is probably
@@ -32,41 +31,6 @@ struct alignas( 16 ) GenerateMipsCB
     u32 SrcDimension;          // Width and height of the source texture are even or odd.
     u32 IsSRGB;                // Must apply gamma correction to sRGB textures.
     f2 TexelSize;    // 1.0 / OutMip1.Dimensions
-};
-
-struct ObjectTransform
-{
-	f3 p;
-	f3 local_p;
-	quaternion r;
-	quaternion local_r;
-	f3 s;
-	f3 local_s;
-	f4x4 m;
-	f3 forward;
-	f3 up;
-	f3 right;
-    bool is_free = true;
-};
-
-enum RenderCameraProjectionType
-{
-    perspective,
-    orthographic,
-    screen_space
-};
-
-struct RenderCamera
-{
-    ObjectTransform ot;//perspective and ortho only
-    f4x4 matrix;
-    f4x4 projection_matrix;
-    f4x4 spot_light_shadow_projection_matrix;
-    f4x4 point_light_shadow_projection_matrix;
-    RenderCameraProjectionType projection_type;
-    f32 size;//ortho only
-    f32 fov;//perspective only
-    f2 near_far_planes;
 };
 
 struct CompatibilityProfile
@@ -237,8 +201,7 @@ struct GPUArena
 
 struct DrawTest
 {
-    ObjectTransform ot;
-    RenderCamera rc;
+    FMJ3DTrans ot;
     GPUArena v_buffer;
     ID3D12DescriptorHeap* heap;
 };
@@ -525,7 +488,9 @@ namespace D12RendererCode
     
     inline void AddHeader(D12CommandType type)
     {
-        D12CommandHeader* header = PUSHSTRUCT(&render_com_buf.arena,D12CommandHeader,fmj_arena_push_params_no_clear());
+        FMJMemoryArenaPushParams def = fmj_arena_push_params_default();
+        def.alignment = 0;
+        D12CommandHeader* header = PUSHSTRUCT(&render_com_buf.arena,D12CommandHeader,def);
         header->type = type;
     }
     
@@ -533,7 +498,9 @@ namespace D12RendererCode
     inline void* AddCommand_(u32 size)
     {
         ++render_com_buf.count;
-        return PUSHSIZE(&render_com_buf.arena,size,fmj_arena_push_params_no_clear());
+        FMJMemoryArenaPushParams def = fmj_arena_push_params_default();
+        def.alignment = 0;
+        return PUSHSIZE(&render_com_buf.arena,size,def);
     }
     
     void AddDrawIndexedCommand(u32 index_count,u32 heap_count,ID3D12DescriptorHeap* heaps,D3D12_PRIMITIVE_TOPOLOGY topology,
@@ -962,10 +929,9 @@ namespace D12RendererCode
         
         fmj_anycache_add_to_free_list(&allocator_tables.fl_ca,&key,&entry);
 //        D12CommandAllocatorEntry* result = (D12CommandAllocatorEntry*)AnythingCacheCode::GetThing(&allocator_tables.fl_ca, &key);
-        D12CommandAllocatorEntry** result;
-        *result = (D12CommandAllocatorEntry*)fmj_anycache_get_(&allocator_tables.fl_ca, &key);        
+        D12CommandAllocatorEntry* result = (D12CommandAllocatorEntry*)fmj_anycache_get_(&allocator_tables.fl_ca, &key);
         ASSERT(result);
-        return  *result;
+        return  result;
     }
     
     bool GetCAPredicateCOPY(void* ca)
@@ -1008,46 +974,46 @@ namespace D12RendererCode
     
     D12CommandAllocatorEntry* GetFreeCommandAllocatorEntry(D3D12_COMMAND_LIST_TYPE  type)
     {
-        D12CommandAllocatorEntry** result;
-        {
-            //Forget the free list we will access the table directly and get the first free
-            //remove and make a inflight allocator table.
-            //This does not work with free lists due to the fact taht the top element might always be busy
-            //in some cases causing the infinite allocation of command allocators.
-            //result = GetFirstFreeWithPredicate(D12CommandAllocatorEntry,allocator_tables.fl_ca,GetCAPredicateDIRECT);
-            FMJStretchBuffer* table = GetTableForType(type);
+        D12CommandAllocatorEntry* result;
+        //Forget the free list we will access the table directly and get the first free
+        //remove and make a inflight allocator table.
+        //This does not work with free lists due to the fact taht the top element might always be busy
+        //in some cases causing the infinite allocation of command allocators.
+        //result = GetFirstFreeWithPredicate(D12CommandAllocatorEntry,allocator_tables.fl_ca,GetCAPredicateDIRECT);
+        FMJStretchBuffer* table = GetTableForType(type);
             
-            if(table->fixed.count <= 0)
+        if(table->fixed.count <= 0)
+        {
+            result = 0;
+        }
+        else
+        {
+            // NOTE(Ray Garner): We assume if we get a free one you WILL use it.
+            //otherwise we will need to do some other bookkeeping.
+            //result = *YoyoPeekVectorElementPtr(D12CommandAllocatorEntry*,table);
+            result = *(D12CommandAllocatorEntry**)fmj_stretch_buffer_get_(table,table->fixed.count - 1);
+            if(!IsFenceComplete(fence,(result)->fence_value))
             {
-                *result = 0;
+                result = 0;
             }
             else
             {
-                // NOTE(Ray Garner): We assume if we get a free one you WILL use it.
-                //otherwise we will need to do some other bookkeeping.
-                //result = *YoyoPeekVectorElementPtr(D12CommandAllocatorEntry*,table);
-                *result = fmj_stretch_buffer_get(D12CommandAllocatorEntry*,table,table->fixed.count);
-                if(!IsFenceComplete(fence,(*result)->fence_value))
-                {
-                    *result = 0;
-                }
-                else
-                {
-                    fmj_stretch_buffer_pop(table);
-                }
+                fmj_stretch_buffer_pop(table);
             }
         }
-        
-        if (!*result)
+        if (!result)
         {
-            *result = AddFreeCommandAllocatorEntry(type);
+            result = AddFreeCommandAllocatorEntry(type);
         }
         ASSERT(result);
-        return *result;
+        return result;
     }
     
     void CheckReuseCommandAllocators()
     {
+        fmj_stretch_buffer_clear(&allocator_tables.free_allocator_table);
+        fmj_stretch_buffer_clear(&allocator_tables.free_allocator_table_compute);
+        fmj_stretch_buffer_clear(&allocator_tables.free_allocator_table_copy);                
         for(int i = 0;i < allocator_tables.fl_ca.anythings.fixed.count;++i)
         {
             D12CommandAllocatorEntry* entry = (D12CommandAllocatorEntry*)allocator_tables.fl_ca.anythings.fixed.base + i;
@@ -1056,7 +1022,7 @@ namespace D12RendererCode
             {
                 FMJStretchBuffer* table = GetTableForType(entry->type);
                 //if one put them on the free table for reuse.
-                fmj_stretch_buffer_push(table,(void*)entry);
+                fmj_stretch_buffer_push(table,(void*)&entry);
             }
         }
     }
@@ -1166,6 +1132,7 @@ namespace D12RendererCode
     
     void Init()
     {
+        tex_heap_count = 0;
         allocator_tables = {};
         allocator_tables.free_allocator_table = fmj_stretch_buffer_init(1,sizeof(D12CommandAllocatorEntry*),8);
         allocator_tables.free_allocator_table_copy = fmj_stretch_buffer_init(1,sizeof(D12CommandAllocatorEntry*),8);
@@ -1597,9 +1564,12 @@ namespace D12RendererCode
         D3D12_CPU_DESCRIPTOR_HANDLE hmdh = default_srv_desc_heap->GetCPUDescriptorHandleForHeapStart();
         
         // TODO(Ray Garner): We will have to properly implement this later! For now we just keep adding texture as we cant remove them yet.
-        u32 first_free_texture_slot = tex_heap_count++;
+
         hmdh.ptr += (hmdh_size * tex_heap_count);
+        u32 first_free_texture_slot = tex_heap_count;        
         lt->slot = first_free_texture_slot;
+        tex_heap_count++;
+        
         device->CreateShaderResourceView((ID3D12Resource*)tex_resource.state, &srvDesc2, hmdh);
         
         D3D12_SUBRESOURCE_DATA subresourceData = {};
@@ -1911,7 +1881,10 @@ namespace D12RendererCode
             
             if(command_type == D12CommandType_StartCommandList)
             {
-                D12CommandStartCommandList* com = Pop(at,D12CommandStartCommandList);
+                D12CommandStartCommandList* com = (D12CommandStartCommandList*)at;
+                at = (uint8_t*)at + (sizeof(D12CommandStartCommandList));                
+
+                //Pop(at,D12CommandStartCommandList);
                 current_ae = D12RendererCode::GetFreeCommandAllocatorEntry(D3D12_COMMAND_LIST_TYPE_DIRECT);
                 
                 current_cl = GetAssociatedCommandList(current_ae);
@@ -1921,7 +1894,7 @@ namespace D12RendererCode
                 current_cl.list->Reset(current_ae->allocator, nullptr);
                 
                 current_cl.list->OMSetRenderTargets(1, &rtv_cpu_handle, FALSE, &dsv_cpu_handle);
-                
+
                 continue;
             }
             else if(command_type == D12CommandType_EndCommandList)
@@ -2104,6 +2077,7 @@ namespace D12RendererCode
         //the fence value that we give to each allocator is based on the fence value for the queue.
         //D12RendererCode::WaitForFenceValue(fence, allocator_entry->fence_value, fence_event);
         fmj_stretch_buffer_clear(&allocator_entry->used_list_indexes);
+
         is_resource_cl_recording = false;
         // NOTE(Ray Garner): Here we are doing bookkeeping for resuse of various resources.
         //If the allocators are not in flight add them to the free table
