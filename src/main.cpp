@@ -804,6 +804,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     RenderCamera rc = {};
     rc.ot.p = f3_create(0,0,0);
     rc.ot.r = f3_axis_angle(f3_create(0,0,1),0);
+    rc.ot.s = f3_create(1,1,1);
     //rc.projection_matrix = init_ortho_proj_matrix(f2_create(100.0f,100.0f),0.0f,1.0f);
     rc.projection_matrix = init_pers_proj_matrix(ps->window.dim,80,f2_create(0.1f,100000));
     
@@ -814,7 +815,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 
     FMJ3DTrans cube = {0};
     //cube.p = float3(-hmlt.dim.x() * 0.5f,-255,-hmlt.dim.y()*0.5f);
-    cube.p = f3_create(0,0,5);
+    cube.p = f3_create(0,0,-5);
     cube.s = f3_create(10.0f,10.0f,10.0f);
     cube.r = f3_axis_angle(f3_create(0,0,1),0);    
     //float3 ter_r_axis = float3(1,0,0);
