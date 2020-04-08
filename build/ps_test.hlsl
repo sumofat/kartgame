@@ -1,18 +1,33 @@
 
-Texture2D t1 : register(t0);
-Texture2D t2 : register(t1);
+//Texture2D t1 : register(t0);
+//Texture2D t2 : register(t1);
+//Texture2D t3 : register(t2);
 
+Texture2D ts[3] : register(t0);
 SamplerState s1 : register(s0);
+
+struct ShaderVars
+{
+    uint tex_index;
+    float2 bar;
+    int moo;
+};
+
+ConstantBuffer<ShaderVars> shader_vars : register(b0);
 
 struct PixelShaderInput
 {
     float4 Position : SV_Position;
-	float2 UV : TEXCOORD;
-    float4 h : COLOR;
+    float4 Color : COLOR;
+    float2 UV : TEXCOORD;
 };
 
 float4 main( PixelShaderInput IN ) : SV_Target
 {
-   float4 color = float4(1,1,1,1);
+//   float4 color = t1.Sample(s1, IN.UV);
+   float4 color = ts[shader_vars.tex_index].Sample(s1, IN.UV);
+   //return float4(color.rgb * color.a,color.a);
+   //return float4(0,0,1,0.1f);
    return color;
+
 }

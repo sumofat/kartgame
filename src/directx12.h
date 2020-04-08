@@ -1,4 +1,4 @@
-#define USE_DEBUG_LAYER 0
+#define USE_DEBUG_LAYER 1
 
 // DirectX 12 specific headers.
 #include <d3d12.h>
@@ -450,11 +450,13 @@ namespace D12RendererCode
             CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL_FORMAT DSVFormat;
             CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS RTVFormats;
             CD3DX12_PIPELINE_STATE_STREAM_RASTERIZER RasterizerState;
+            CD3DX12_PIPELINE_STATE_STREAM_BLEND_DESC blend_state;            
         };
         
         D3D12_RT_FORMAT_ARRAY rtv_formats = {};
         rtv_formats.NumRenderTargets = 1;
         rtv_formats.RTFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+
         
         PipelineStateStream ppss = {};
         ppss.pRootSignature = D12RendererCode::root_sig;
@@ -469,6 +471,11 @@ namespace D12RendererCode
         CD3DX12_RASTERIZER_DESC raster_desc = CD3DX12_RASTERIZER_DESC(d);
         raster_desc.CullMode = D3D12_CULL_MODE_NONE;
         ppss.RasterizerState = CD3DX12_PIPELINE_STATE_STREAM_RASTERIZER(raster_desc);
+        CD3DX12_BLEND_DESC bdx = CD3DX12_BLEND_DESC(d);
+        bdx.RenderTarget[0].BlendEnable = true;
+        bdx.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+        bdx.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+        ppss.blend_state = CD3DX12_PIPELINE_STATE_STREAM_BLEND_DESC(bdx);
         
         D3D12_PIPELINE_STATE_STREAM_DESC pipelineStateStreamDesc = 
         {
@@ -1189,6 +1196,7 @@ namespace D12RendererCode
         // create the descriptor heap that will store our srv
         default_srv_desc_heap = CreateDescriptorHeap(MAX_SRV_DESC_HEAP_COUNT,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE);
         
+        
         D12ResourceState::Init(device);
     }
     
@@ -1897,6 +1905,7 @@ namespace D12RendererCode
 
                 continue;
             }
+
             else if(command_type == D12CommandType_EndCommandList)
             {
                 D12CommandEndCommmandList* com = Pop(at,D12CommandEndCommmandList);
@@ -1922,6 +1931,7 @@ namespace D12RendererCode
                 fmj_stretch_buffer_clear(&current_ae->used_list_indexes);
                 continue;
             }
+
             else if(command_type == D12CommandType_Viewport)
             {
                 D12CommandViewport* com = Pop(at,D12CommandViewport);
@@ -1929,6 +1939,7 @@ namespace D12RendererCode
                 current_cl.list->RSSetViewports(1, &new_viewport);
                 continue;
             }
+
             else if(command_type == D12CommandType_ScissorRect)
             {
                 D12CommandScissorRect* com = Pop(at,D12CommandScissorRect);
@@ -1936,6 +1947,7 @@ namespace D12RendererCode
                 current_cl.list->RSSetScissorRects(1, &com->rect);
                 continue;
             }
+
             else if(command_type == D12CommandType_RootSignature)
             {
                 D12CommandRootSignature* com = Pop(at,D12CommandRootSignature);

@@ -24,14 +24,15 @@ ConstantBuffer<ClipMapData> ClipMapDataCB : register(b2);
 struct VertexPosColor
 {
     float3 Position : POSITION;
+    float4 Color : COLOR;
     float2 UV : TEXCOORD;
 };
  
 struct VertexShaderOutput
 {
-	float4 Position : SV_Position;
-    float2 UV : TEXCOORD;
-    float4 h : COLOR;
+    float4 Position : SV_Position;
+    float4 Color : COLOR;
+    float2 UV : TEXCOORD;    
 };
 
 VertexShaderOutput main(VertexPosColor IN)
@@ -41,8 +42,7 @@ VertexShaderOutput main(VertexPosColor IN)
 //float4 world_p = mul(float4(IN.Position,1.0f),ModelViewProjectionCB.MVP);
 float4 world_p = mul(float4(IN.Position,1.0f),WorldProjectionCB.MVP);
 OUT.Position = world_p;
-OUT.h = float4(0,0,0,1);
+OUT.Color = IN.Color;
 OUT.UV = IN.UV;
-
     return OUT;
 }

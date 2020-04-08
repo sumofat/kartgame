@@ -587,10 +587,12 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     //load texture to mem from disk
     LoadedTexture test_texture = get_loaded_image("test.png",4);
     LoadedTexture test_texture_2 = get_loaded_image("test2.png",4);    
-
+    LoadedTexture koma = get_loaded_image("koma_one.png",4);
+    
      //upload texture data to gpu
     D12RendererCode::Texture2D(&test_texture);
     D12RendererCode::Texture2D(&test_texture_2);
+    D12RendererCode::Texture2D(&koma);
     D12RendererCode::viewport = CD3DX12_VIEWPORT(0.0f, 0.0f,ps->window.dim.x, ps->window.dim.y);
     D12RendererCode::sis_rect = CD3DX12_RECT(0, 0, LONG_MAX, LONG_MAX);
 
@@ -662,9 +664,9 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     ASSERT(SUCCEEDED(r));
 
     D3D12_INPUT_ELEMENT_DESC input_layout[] = {
-        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        //{ "COLOR", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "COLOR"   , 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,       0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
     };
     
     uint32_t input_layout_count = _countof(input_layout);
@@ -689,11 +691,11 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     // this is a range of descriptors inside a descriptor heap
     D3D12_DESCRIPTOR_RANGE1  descriptorTableRanges[1];
     descriptorTableRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    descriptorTableRanges[0].NumDescriptors = 2; 
+    descriptorTableRanges[0].NumDescriptors = -1;//MAX_SRV_DESC_HEAP_COUNT; 
     descriptorTableRanges[0].BaseShaderRegister = 0; 
     descriptorTableRanges[0].RegisterSpace = 0;
     descriptorTableRanges[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND; 
-    descriptorTableRanges[0].Flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
+    descriptorTableRanges[0].Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE;
 
     // create a descriptor table
     D3D12_ROOT_DESCRIPTOR_TABLE1 descriptorTable;
@@ -714,8 +716,13 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     rc_3.RegisterSpace = 0;
     rc_3.ShaderRegister = 2;
     rc_3.Num32BitValues = 4;
+    
+    D3D12_ROOT_CONSTANTS rc_4 = {};
+    rc_4.RegisterSpace = 0;
+    rc_4.ShaderRegister = 0;
+    rc_4.Num32BitValues = 4;
 
-    D3D12_ROOT_PARAMETER1  root_params[4];
+    D3D12_ROOT_PARAMETER1  root_params[5];
     root_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
     root_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
     root_params[0].Constants = rc_1;
@@ -725,7 +732,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     root_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     root_params[1].DescriptorTable = descriptorTable;
     root_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    
+   
     root_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
     root_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
     root_params[2].Constants = rc_2;
@@ -733,6 +740,10 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     root_params[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
     root_params[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
     root_params[3].Constants = rc_3;
+    
+    root_params[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_params[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    root_params[4].Constants = rc_4;
 
     D3D12_STATIC_SAMPLER_DESC vs;
     vs.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
@@ -768,7 +779,6 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     tex_static_samplers[1] = ss;
 
     D12RendererCode::root_sig = D12RendererCode::CreatRootSignature(root_params,_countof(root_params),tex_static_samplers,2,root_sig_flags);
-
     D12RendererCode::pipeline_state = D12RendererCode::CreatePipelineState(input_layout,input_layout_count,vs_blob,fs_blob);    
 
     //Create the depth buffer
@@ -805,45 +815,63 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     rc.ot.p = f3_create(0,0,0);
     rc.ot.r = f3_axis_angle(f3_create(0,0,1),0);
     rc.ot.s = f3_create(1,1,1);
-    //rc.projection_matrix = init_ortho_proj_matrix(f2_create(100.0f,100.0f),0.0f,1.0f);
+//    rc.projection_matrix = init_ortho_proj_matrix(f2_create(100.0f,100.0f),0.0f,1.0f);
     rc.projection_matrix = init_pers_proj_matrix(ps->window.dim,80,f2_create(0.1f,100000));
     
     rc.fov = 80;
     rc.near_far_planes = f2_create(0,1);
     
     rc.matrix = f4x4_identity();
-
-    FMJ3DTrans cube = {0};
-    //cube.p = float3(-hmlt.dim.x() * 0.5f,-255,-hmlt.dim.y()*0.5f);
-    cube.p = f3_create(0,0,-5);
-    cube.s = f3_create(10.0f,10.0f,10.0f);
-    cube.r = f3_axis_angle(f3_create(0,0,1),0);    
-    //float3 ter_r_axis = float3(1,0,0);
-    //angle = 90;
-    //cube.r = axis_angle(ter_r_axis,angle);
-    fmj_3dtrans_update(&cube);    
-
-    u64 quad_mem_size = SIZE_OF_SPRITE_IN_BYTES;
-    
+    u64 quad_mem_size = SIZE_OF_SPRITE_IN_BYTES * 100;
     GPUArena quad_gpu_arena = D12RendererCode::AllocateGPUArena(quad_mem_size);
 
+    struct SpriteTrans
+    {
+        FMJSprite s;
+        FMJ3DTrans t;
+    }typedef SpriteTrans;
+
+    FMJFixedBuffer fixed_quad_buffer = fmj_fixed_buffer_init(200,sizeof(SpriteTrans),8);
+
     FMJSpriteBatch sb = {0};
+    
     sb.arena = fmj_arena_allocate(quad_mem_size);
     uint64_t stride = sizeof(float) * (3 + 4 + 2);
-
-    f3 bl = f3_create(0,0,0);
-    f3 br = f3_create(1,0,0);
-    f3 tr = f3_create(1,1,0);
-    f3 tl = f3_create(0,1,0);
-
+    f2 stbl = f2_create(0.0f,0.0f);
+    f2 stbr = f2_create(1.0f,0.0f);
+    f2 sttr = f2_create(1.0f,1.0f);
+    f2 sttl = f2_create(0.0f,1.0f);
+    f2 uvs[4] = {stbl,stbr,sttr,sttl};
     f4 white = f4_create(1,1,1,1);
+    for(int i = 0;i < 10;++i)
+    {
+        SpriteTrans st = {0};
+        FMJ3DTrans transform = {0};
+        transform.p = f3_create(i * 10,0,-5);
+        transform.s = f3_create(2.0f,2.0f,2.0f);
+        transform.r = f3_axis_angle(f3_create(0,0,1),0);    
+        fmj_3dtrans_update(&transform);
+        st.t = transform;
+        st.s = fmj_sprite_init(0,uvs,white,true);
+        
+        fmj_fixed_buffer_push(&fixed_quad_buffer,(void*)&st);
+        fmj_sprite_add_quad(&sb.arena,transform.p,transform.r,transform.s,white,uvs);        
+    }
 
-    f2 st = f2_create(0,0);
-    
-    f3 poss[4] = {bl,br,tr,tl};
-    f4 cs[4] = {white,white,white,white};
-    f2 uvs[4] = {st,st,st,st};
-    fmj_sprite_add_rect(&sb.arena,poss,cs,uvs);
+    for(int i = 0;i < 10;++i)
+    {
+        SpriteTrans st = {0};
+        FMJ3DTrans transform = {0};
+        transform.p = f3_create(i * 10,20,-5);
+        transform.s = f3_create(5.0f,5.0f,5.0f);
+        transform.r = f3_axis_angle(f3_create(0,0,1),0);    
+        fmj_3dtrans_update(&transform);
+        st.t = transform;
+        st.s = fmj_sprite_init(1,uvs,white,true);
+        
+        fmj_fixed_buffer_push(&fixed_quad_buffer,(void*)&st);
+        fmj_sprite_add_quad(&sb.arena,transform.p,transform.r,transform.s,white,uvs);        
+    }
     
     //Set data
     //...
@@ -853,6 +881,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 #if 1
     quad_gpu_arena.resource->SetName(L"QUADS_GPU_ARENA");
 #endif
+    u32 tex_index = 0;
+    
     f2 cam_pitch_yaw = f2_create(0.0f,0.0f);    
     while(ps->is_running)
     {
@@ -869,7 +899,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 //        cube.p.x += 0.001f;
 //Render camera stated etc..  is finalized        
  //Free cam
-#if 1
+#if 0
         cam_pitch_yaw = f2_add(cam_pitch_yaw,ps->input.mouse.delta_p);
         quaternion pitch = f3_axis_angle(f3_create(1, 0, 0), cam_pitch_yaw.y);
         quaternion yaw   = f3_axis_angle(f3_create(0, 1, 0), cam_pitch_yaw.x * -1);
@@ -882,31 +912,37 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 //Render commands are issued to the api
         //Render API CODE
         D12RendererCode::AddStartCommandListCommand();
-        
         D12RendererCode::AddPipelineStateCommand(D12RendererCode::pipeline_state);
         D12RendererCode::AddRootSignatureCommand(D12RendererCode::root_sig);
         D12RendererCode::AddViewportCommand(f4_create(0,0,ps->window.dim.x,ps->window.dim.y));
         D12RendererCode::AddScissorRectCommand(CD3DX12_RECT(0,0,LONG_MAX,LONG_MAX));
         D12RendererCode::AddGraphicsRootDescTable(1,D12RendererCode::default_srv_desc_heap,D12RendererCode::default_srv_desc_heap->GetGPUDescriptorHandleForHeapStart());
 
-        fmj_3dtrans_update(&cube);    
-        FMJ3DTrans t = cube;
-        f4x4 m_mat = t.m;
-        f4x4 c_mat = rc.matrix;
-        f4x4 p_mat = rc.projection_matrix;
-        f4x4 world_mat = f4x4_mul(c_mat,m_mat);
-        f4x4 finalmat = f4x4_mul(p_mat,world_mat);
+        for(int i = 0;i < fixed_quad_buffer.count;++i)
+        {
+            SpriteTrans st = fmj_fixed_buffer_get(SpriteTrans,&fixed_quad_buffer,i);
+            FMJ3DTrans t = st.t;
+            fmj_3dtrans_update(&t);    
+            f4x4 m_mat = t.m;
+            f4x4 c_mat = rc.matrix;
+            f4x4 p_mat = rc.projection_matrix;
+            f4x4 world_mat = f4x4_mul(c_mat,m_mat);
+            f4x4 finalmat = f4x4_mul(p_mat,world_mat);
 //        D12RendererCode::AddGraphicsRoot32BitConstant(0,16,&finalmat,0);
-        D12RendererCode::AddGraphicsRoot32BitConstant(0,16,&m_mat,0);        
-        D12RendererCode::AddGraphicsRoot32BitConstant(2,16,&finalmat,0);
+            D12RendererCode::AddGraphicsRoot32BitConstant(0,16,&m_mat,0);        
+            D12RendererCode::AddGraphicsRoot32BitConstant(2,16,&finalmat,0);
 
-        f4 clip_map_data = f4_create(0,(float)1,(float)1,(float)3);
-        D12RendererCode::AddGraphicsRoot32BitConstant(3,4,&clip_map_data,0);
-                    
+            f4 clip_map_data = f4_create(0,(float)1,(float)1,(float)3);
+            D12RendererCode::AddGraphicsRoot32BitConstant(3,4,&clip_map_data,0);
+            tex_index = st.s.tex_id;//(tex_index + 1) % 3;
+            D12RendererCode::AddGraphicsRoot32BitConstant(4,4,&tex_index,0);
+            D12RendererCode::AddGraphicsRootDescTable(1,D12RendererCode::default_srv_desc_heap,D12RendererCode::default_srv_desc_heap->GetGPUDescriptorHandleForHeapStart());                    
 //        D12RendererCode::AddDrawIndexedCommand(tile_index_count * 2,1,test_desc_heap,D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
 //                                               tile_uv_gpu_arena.buffer_view,
 //                                               tile_gpu_arena.buffer_view,tile_index_gpu_arena.index_buffer_view);
-        D12RendererCode::AddDrawCommand(6,1,test_desc_heap,D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,quad_gpu_arena.buffer_view);
+            D12RendererCode::AddDrawCommand(6,1,test_desc_heap,D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,quad_gpu_arena.buffer_view);
+            
+        }
 
 //Command are finalized and rendering is started.        
  // TODO(Ray Garner): Add render targets commmand
