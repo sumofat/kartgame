@@ -588,11 +588,14 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     LoadedTexture test_texture = get_loaded_image("test.png",4);
     LoadedTexture test_texture_2 = get_loaded_image("test2.png",4);    
     LoadedTexture koma = get_loaded_image("koma_one.png",4);
+    LoadedTexture ping_title = get_loaded_image("ping_title.png",4);
     
      //upload texture data to gpu
     D12RendererCode::Texture2D(&test_texture);
     D12RendererCode::Texture2D(&test_texture_2);
     D12RendererCode::Texture2D(&koma);
+    D12RendererCode::Texture2D(&ping_title);
+    
     D12RendererCode::viewport = CD3DX12_VIEWPORT(0.0f, 0.0f,ps->window.dim.x, ps->window.dim.y);
     D12RendererCode::sis_rect = CD3DX12_RECT(0, 0, LONG_MAX, LONG_MAX);
 
@@ -809,22 +812,23 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 
     //Descriptor heap for our resources
     // create the descriptor heap that will store our srv
-    ID3D12DescriptorHeap* test_desc_heap = D12RendererCode::CreateDescriptorHeap(2,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE);
+//    ID3D12DescriptorHeap* test_desc_heap;// = D12RendererCode::CreateDescriptorHeap(2,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE);
 
     RenderCamera rc = {};
     rc.ot.p = f3_create(0,0,0);
     rc.ot.r = f3_axis_angle(f3_create(0,0,1),0);
     rc.ot.s = f3_create(1,1,1);
-//    rc.projection_matrix = init_ortho_proj_matrix(f2_create(100.0f,100.0f),0.0f,1.0f);
-    rc.projection_matrix = init_pers_proj_matrix(ps->window.dim,80,f2_create(0.1f,100000));
+    rc.projection_matrix = init_ortho_proj_matrix(f2_create(100.0f,100.0f),0.0f,1.0f);
+//    rc.projection_matrix = init_pers_proj_matrix(ps->window.dim,80,f2_create(0.1f,100000));
     
     rc.fov = 80;
     rc.near_far_planes = f2_create(0,1);
     
     rc.matrix = f4x4_identity();
     u64 quad_mem_size = SIZE_OF_SPRITE_IN_BYTES * 100;
+    u64 matrix_mem_size = (sizeof(f32) * 16) * 100;    
     GPUArena quad_gpu_arena = D12RendererCode::AllocateGPUArena(quad_mem_size);
-
+    GPUArena matrix_gpu_arena = D12RendererCode::AllocateGPUArena(matrix_mem_size);
     struct SpriteTrans
     {
         FMJSprite s;
@@ -832,7 +836,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     }typedef SpriteTrans;
 
     FMJFixedBuffer fixed_quad_buffer = fmj_fixed_buffer_init(200,sizeof(SpriteTrans),8);
-
+    FMJFixedBuffer matrix_quad_buffer = fmj_fixed_buffer_init(200,sizeof(f32)*16,8);
+    
     FMJSpriteBatch sb = {0};
     
     sb.arena = fmj_arena_allocate(quad_mem_size);
@@ -843,26 +848,26 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     f2 sttl = f2_create(0.0f,1.0f);
     f2 uvs[4] = {stbl,stbr,sttr,sttl};
     f4 white = f4_create(1,1,1,1);
-    for(int i = 0;i < 10;++i)
+    for(int i = 0;i < 1;++i)
     {
         SpriteTrans st = {0};
         FMJ3DTrans transform = {0};
-        transform.p = f3_create(i * 10,0,-5);
-        transform.s = f3_create(2.0f,2.0f,2.0f);
+        transform.p = f3_create(0,0,0);
+        transform.s = f3_create(4.0f,4.0f,4.0f);
         transform.r = f3_axis_angle(f3_create(0,0,1),0);    
         fmj_3dtrans_update(&transform);
         st.t = transform;
         st.s = fmj_sprite_init(0,uvs,white,true);
-        
+        fmj_fixed_buffer_push(&matrix_quad_buffer,(void*)&transform.m);        
         fmj_fixed_buffer_push(&fixed_quad_buffer,(void*)&st);
         fmj_sprite_add_quad(&sb.arena,transform.p,transform.r,transform.s,white,uvs);        
     }
-
+/*
     for(int i = 0;i < 10;++i)
     {
         SpriteTrans st = {0};
         FMJ3DTrans transform = {0};
-        transform.p = f3_create(i * 10,20,-5);
+        transform.p = f3_create(i + 10,0,0);
         transform.s = f3_create(5.0f,5.0f,5.0f);
         transform.r = f3_axis_angle(f3_create(0,0,1),0);    
         fmj_3dtrans_update(&transform);
@@ -872,17 +877,21 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         fmj_fixed_buffer_push(&fixed_quad_buffer,(void*)&st);
         fmj_sprite_add_quad(&sb.arena,transform.p,transform.r,transform.s,white,uvs);        
     }
-    
+*/    
     //Set data
     //...
     D12RendererCode::SetArenaToVertexBufferView(&quad_gpu_arena,quad_mem_size,stride);
     D12RendererCode::UploadBufferData(&quad_gpu_arena,sb.arena.base,quad_mem_size);
+
+    u64 m_stride = sizeof(f32) * 16;
+    D12RendererCode::SetArenaToVertexBufferView(&matrix_gpu_arena,matrix_mem_size,m_stride);
+    D12RendererCode::UploadBufferData(&matrix_gpu_arena,matrix_quad_buffer.base,matrix_mem_size);    
        
 #if 1
     quad_gpu_arena.resource->SetName(L"QUADS_GPU_ARENA");
 #endif
     u32 tex_index = 0;
-    
+    f32 angle = 0;    
     f2 cam_pitch_yaw = f2_create(0.0f,0.0f);    
     while(ps->is_running)
     {
@@ -921,26 +930,25 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         for(int i = 0;i < fixed_quad_buffer.count;++i)
         {
             SpriteTrans st = fmj_fixed_buffer_get(SpriteTrans,&fixed_quad_buffer,i);
+            st.t.r = f3_axis_angle(f3_create(0,0,1),angle);
             FMJ3DTrans t = st.t;
+
+            angle = angle + 0.01f;            
             fmj_3dtrans_update(&t);    
-            f4x4 m_mat = t.m;
+            f4x4 m_mat = f4x4_identity();//t.m;
             f4x4 c_mat = rc.matrix;
             f4x4 p_mat = rc.projection_matrix;
             f4x4 world_mat = f4x4_mul(c_mat,m_mat);
             f4x4 finalmat = f4x4_mul(p_mat,world_mat);
-//        D12RendererCode::AddGraphicsRoot32BitConstant(0,16,&finalmat,0);
+
             D12RendererCode::AddGraphicsRoot32BitConstant(0,16,&m_mat,0);        
             D12RendererCode::AddGraphicsRoot32BitConstant(2,16,&finalmat,0);
-
             f4 clip_map_data = f4_create(0,(float)1,(float)1,(float)3);
             D12RendererCode::AddGraphicsRoot32BitConstant(3,4,&clip_map_data,0);
             tex_index = st.s.tex_id;//(tex_index + 1) % 3;
             D12RendererCode::AddGraphicsRoot32BitConstant(4,4,&tex_index,0);
             D12RendererCode::AddGraphicsRootDescTable(1,D12RendererCode::default_srv_desc_heap,D12RendererCode::default_srv_desc_heap->GetGPUDescriptorHandleForHeapStart());                    
-//        D12RendererCode::AddDrawIndexedCommand(tile_index_count * 2,1,test_desc_heap,D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
-//                                               tile_uv_gpu_arena.buffer_view,
-//                                               tile_gpu_arena.buffer_view,tile_index_gpu_arena.index_buffer_view);
-            D12RendererCode::AddDrawCommand(6,1,test_desc_heap,D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,quad_gpu_arena.buffer_view);
+            D12RendererCode::AddDrawCommand((i * 6),6,D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,quad_gpu_arena.buffer_view);
             
         }
 

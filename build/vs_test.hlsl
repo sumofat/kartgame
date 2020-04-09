@@ -21,6 +21,7 @@ ConstantBuffer<ModelViewProjection> ModelViewProjectionCB : register(b0);
 ConstantBuffer<ModelViewProjection> WorldProjectionCB : register(b1);
 ConstantBuffer<ClipMapData> ClipMapDataCB : register(b2);
 
+
 struct VertexPosColor
 {
     float3 Position : POSITION;
@@ -39,10 +40,10 @@ VertexShaderOutput main(VertexPosColor IN)
 {
     VertexShaderOutput OUT;
 
-//float4 world_p = mul(float4(IN.Position,1.0f),ModelViewProjectionCB.MVP);
-float4 world_p = mul(float4(IN.Position,1.0f),WorldProjectionCB.MVP);
-OUT.Position = world_p;
-OUT.Color = IN.Color;
-OUT.UV = IN.UV;
+  //float4 world_p = mul(float4(IN.Position,1.0f),ModelViewProjectionCB.MVP);
+    float4 world_p = mul(float4(IN.Position,1.0f),WorldProjectionCB.MVP);
+    OUT.Position = world_p;
+    OUT.Color = IN.Color;
+    OUT.UV = IN.UV;
     return OUT;
 }

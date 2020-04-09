@@ -113,6 +113,7 @@ struct D12CommandHeader
 
 struct D12CommandBasicDraw
 {
+    u32 vertex_offset;
     u32 count;
     D3D12_PRIMITIVE_TOPOLOGY topology;
     u32 heap_count;
@@ -525,15 +526,14 @@ namespace D12RendererCode
         com->index_buffer_view = index_buffer_view;
     }
     
-    void AddDrawCommand(u32 count,u32 heap_count,ID3D12DescriptorHeap* heaps,D3D12_PRIMITIVE_TOPOLOGY topology,D3D12_VERTEX_BUFFER_VIEW buffer_view)
+    void AddDrawCommand(u32 offset,u32 count,D3D12_PRIMITIVE_TOPOLOGY topology,D3D12_VERTEX_BUFFER_VIEW buffer_view)
     {
         ASSERT(count != 0);
         AddHeader(D12CommandType_Draw);
         D12CommandBasicDraw* com = AddCommand(D12CommandBasicDraw);
         com->count = count;
-        com->heap_count = heap_count;
+        com->vertex_offset = offset;
         com->topology = topology;
-        //com->heaps = heaps;
         com->buffer_view = buffer_view;
     }
     
@@ -1547,8 +1547,7 @@ namespace D12RendererCode
         
         D3D12_RESOURCE_DESC res_d = {};  
         res_d = CD3DX12_RESOURCE_DESC::Tex2D( 
-            DXGI_FORMAT_R8G8B8A8_UNORM,(u64)lt->dim.x,(u64)lt->dim.y, 
-            1);
+            DXGI_FORMAT_R8G8B8A8_UNORM,(u64)lt->dim.x,(u64)lt->dim.y,1);
         
         D12Resource tex_resource;
         UploadOp uop = {};
@@ -1567,6 +1566,7 @@ namespace D12RendererCode
         srvDesc2.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
         srvDesc2.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
         srvDesc2.Texture2D.MipLevels = 1;
+
         u32 hmdh_size = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         
         D3D12_CPU_DESCRIPTOR_HANDLE hmdh = default_srv_desc_heap->GetCPUDescriptorHandleForHeapStart();
@@ -1652,6 +1652,85 @@ namespace D12RendererCode
         }
         fmj_thread_end_ticket_mutex(&upload_operations.ticket_mutex);
     }
+/*    
+    void UploadShaderResourceBuffer(GPUArena* g_arena,void* data,u64 size)
+    {
+        D12CommandAllocatorEntry* free_ca  = GetFreeCommandAllocatorEntry(D3D12_COMMAND_LIST_TYPE_COPY);
+        resource_ca = free_ca->allocator;
+        if(!is_resource_cl_recording)
+        {
+            resource_ca->Reset();
+            resource_cl->Reset(resource_ca,nullptr);
+            is_resource_cl_recording = true;
+        }
+        
+        D3D12_HEAP_PROPERTIES hp =  
+        {
+            D3D12_HEAP_TYPE_UPLOAD,
+            D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
+            D3D12_MEMORY_POOL_UNKNOWN,
+            0,
+            0
+        };
+        
+        DXGI_SAMPLE_DESC sample_d =  
+        {
+            1,
+            0
+        };
+        
+        D3D12_RESOURCE_DESC res_d = {};  
+        res_d = CD3DX12_RESOURCE_DESC::Buffer(UINT64 width,D3D12_RESOURCE_FLAG_NONE,0);
+        
+        D12Resource buffer_resource;
+        UploadOp uop = {};
+        
+        HRESULT hr = device->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+            D3D12_HEAP_FLAG_NONE,
+            &res_d,
+            D3D12_RESOURCE_STATE_COMMON,
+            nullptr,
+            IID_PPV_ARGS(&tex_resource.state));
+        ASSERT(SUCCEEDED(hr));
+        
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc2 = {};
+        srvDesc2.Format = DXGI_FORMAT_UNKNOWN;//DXGI_FORMAT_R8G8B8A8_UNORM;
+        srvDesc2.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;//D3D12_SRV_DIMENSION_TEXTURE2D;
+
+        u32 hmdh_size = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        
+        // TODO(Ray Garner): We will have to properly implement this later! For now we just keep adding texture as we cant remove them yet.
+
+        hmdh.ptr += (hmdh_size * tex_heap_count);
+        u32 first_free_texture_slot = tex_heap_count;        
+        lt->slot = first_free_texture_slot;
+        tex_heap_count++;
+
+        device->CreateShaderResourceView((ID3D12Resource*)buffer_resource.state, &srvDesc2, hmdh);        
+        
+        D3D12_SUBRESOURCE_DATA subresourceData = {};
+        subresourceData.pData = gpu_arena.base;
+        // TODO(Ray Garner): Handle minimum size for alignment.
+        //This wont work for a smaller texture im pretty sure.
+        subresourceData.RowPitch = gpu_arena.size;//lt->dim.x * lt->bytes_per_pixel;
+//        subresourceData.SlicePitch = subresourceData.RowPitch;
+        UINT64 req_size = GetRequiredIntermediateSize( buffer_resource.state, 0, 1);
+                // Create a temporary (intermediate) resource for uploading the subresources
+        ID3D12Resource* intermediate_resource;
+        hr = device->CreateCommittedResource(
+            &hp,
+            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Buffer( req_size ),
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            0,
+            IID_PPV_ARGS( &uop.temp_arena.resource ));
+        
+        uop.temp_arena.resource->SetName(L"BUFFER TEMP_UPLOAD_TEXTURE");
+        ASSERT(SUCCEEDED(hr));
+        
+    }
+*/
     
     void UploadBufferData(GPUArena* g_arena,void* data,u64 size)
     {
@@ -1968,10 +2047,8 @@ namespace D12RendererCode
             {
                 D12CommandBasicDraw* com = Pop(at,D12CommandBasicDraw);
                 current_cl.list->IASetVertexBuffers(0, 1, &com->buffer_view);
-                // NOTE(Ray Garner): // TODO(Ray Garner): Get the heaps
-                //that match with the pipeline state and root sig
                 current_cl.list->IASetPrimitiveTopology(com->topology);
-                current_cl.list->DrawInstanced(com->count, 1, 0, 0);
+                current_cl.list->DrawInstanced(com->count, 1, com->vertex_offset, 0);
                 continue;
             }
             
