@@ -193,6 +193,7 @@ struct GPUArena
     u64 size;
     ID3D12Heap* heap;
     ID3D12Resource* resource;
+    u32 slot;
     union
     {
         D3D12_VERTEX_BUFFER_VIEW buffer_view;
@@ -390,7 +391,7 @@ namespace D12RendererCode
     
     D12RenderCommandList render_com_buf;
     ID3D12DescriptorHeap* default_srv_desc_heap;
-    u32 tex_heap_count;
+    u32 srv_heap_count;
     
     ID3D12RootSignature* CreatRootSignature(D3D12_ROOT_PARAMETER1* params,int param_count,D3D12_STATIC_SAMPLER_DESC* samplers,int sampler_count,D3D12_ROOT_SIGNATURE_FLAGS flags)
     {
@@ -430,6 +431,7 @@ namespace D12RendererCode
         heapDesc.NumDescriptors = num_desc;
         heapDesc.Flags = flags;
         heapDesc.Type = type;
+
         HRESULT r = device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&result));
         if (FAILED(r))
         {
@@ -1139,7 +1141,7 @@ namespace D12RendererCode
     
     void Init()
     {
-        tex_heap_count = 0;
+        srv_heap_count = 0;
         allocator_tables = {};
         allocator_tables.free_allocator_table = fmj_stretch_buffer_init(1,sizeof(D12CommandAllocatorEntry*),8);
         allocator_tables.free_allocator_table_copy = fmj_stretch_buffer_init(1,sizeof(D12CommandAllocatorEntry*),8);
@@ -1462,13 +1464,77 @@ namespace D12RendererCode
         result.device.device = device;
         return result;
     }
-    
-    // NOTE(Ray Garner): // TODO(Ray Garner): Use Placed resources and implement proper
-    //memory control techniques. Pre allocate Texture and Vertex buffer resources set a fixed size.
-    //If we go over budget assert and reasses at that point.
-    // NOTE(Ray Garner): Nvidia reccomends using commited resources whereever possible so for now we will 
-    //stick with that until we find a good reason to do otherwise.
+
     GPUArena AllocateGPUArena(u64 size)
+    {
+        GPUArena result = {};
+        size_t bufferSize = size;
+        D3D12_HEAP_PROPERTIES hp =  
+        {
+            D3D12_HEAP_TYPE_UPLOAD,
+            D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
+            D3D12_MEMORY_POOL_UNKNOWN,
+            0,
+            0
+        };
+        
+        DXGI_SAMPLE_DESC sample_d =  
+        {
+            1,
+            0
+        };
+        
+        D3D12_RESOURCE_DESC res_d =  
+        {
+            D3D12_RESOURCE_DIMENSION_BUFFER,
+            0,
+            size,
+            1,
+            1,
+            1,
+            DXGI_FORMAT_UNKNOWN,
+            sample_d,
+            D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+            D3D12_RESOURCE_FLAG_NONE,
+        };
+        
+        // Create a committed resource for the GPU resource in a default heap.
+        HRESULT r = (device->CreateCommittedResource(
+            &hp,
+            D3D12_HEAP_FLAG_NONE,
+            &res_d,
+            D3D12_RESOURCE_STATE_GENERIC_READ,            
+            nullptr,
+            IID_PPV_ARGS(&result.resource)));
+        ASSERT(SUCCEEDED(r));
+        return result;
+    }
+
+    void SetArenaToConstantBuffer(GPUArena* arena)
+    {
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc2 = {};
+        srvDesc2.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;        
+        srvDesc2.Format = DXGI_FORMAT_R32_TYPELESS;
+        srvDesc2.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;//D3D12_SRV_DIMENSION_TEXTURE2D;
+        srvDesc2.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+        srvDesc2.Buffer.FirstElement = 0;
+        srvDesc2.Buffer.NumElements = 200;
+        //srvDesc2.Buffer.StructureByteStride = sizeof(f32) * 16;
+        
+        u32 hmdh_size = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+        D3D12_CPU_DESCRIPTOR_HANDLE hmdh = default_srv_desc_heap->GetCPUDescriptorHandleForHeapStart();        
+        // TODO(Ray Garner): We will have to properly implement this later! For now we just keep adding texture as we cant remove them yet.
+
+        hmdh.ptr += (hmdh_size * srv_heap_count);
+        u32 first_free_buffer_slot = srv_heap_count;        
+        arena->slot = first_free_buffer_slot;
+        srv_heap_count++;
+
+        device->CreateShaderResourceView((ID3D12Resource*)arena->resource, &srvDesc2, hmdh);        
+    }
+    
+    GPUArena AllocateStaticGPUArena(u64 size)
     {
         GPUArena result = {};
         size_t bufferSize = size;
@@ -1506,6 +1572,7 @@ namespace D12RendererCode
             &hp,
             D3D12_HEAP_FLAG_NONE,
             &res_d,
+//            D3D12_RESOURCE_STATE_GENERIC_READ,            
             D3D12_RESOURCE_STATE_COPY_DEST,
             nullptr,
             IID_PPV_ARGS(&result.resource)));
@@ -1573,10 +1640,10 @@ namespace D12RendererCode
         
         // TODO(Ray Garner): We will have to properly implement this later! For now we just keep adding texture as we cant remove them yet.
 
-        hmdh.ptr += (hmdh_size * tex_heap_count);
-        u32 first_free_texture_slot = tex_heap_count;        
+        hmdh.ptr += (hmdh_size * srv_heap_count);
+        u32 first_free_texture_slot = srv_heap_count;        
         lt->slot = first_free_texture_slot;
-        tex_heap_count++;
+        srv_heap_count++;
         
         device->CreateShaderResourceView((ID3D12Resource*)tex_resource.state, &srvDesc2, hmdh);
         
@@ -1617,7 +1684,6 @@ namespace D12RendererCode
         fmj_thread_begin_ticket_mutex(&upload_operations.ticket_mutex);
         uop.id = upload_operations.current_op_id++;
         UploadOpKey k = {uop.id};
-        //AnythingCacheCode::AddThingFL(&upload_operations.table_cache,&k,&uop);
         fmj_anycache_add_to_free_list(&upload_operations.table_cache,&k,&uop);
         // NOTE(Ray Garner): Implement this.
         //if(upload_ops.anythings.count > UPLOAD_OP_THRESHOLD)
@@ -1652,7 +1718,7 @@ namespace D12RendererCode
         }
         fmj_thread_end_ticket_mutex(&upload_operations.ticket_mutex);
     }
-/*    
+/*
     void UploadShaderResourceBuffer(GPUArena* g_arena,void* data,u64 size)
     {
         D12CommandAllocatorEntry* free_ca  = GetFreeCommandAllocatorEntry(D3D12_COMMAND_LIST_TYPE_COPY);
@@ -1680,7 +1746,7 @@ namespace D12RendererCode
         };
         
         D3D12_RESOURCE_DESC res_d = {};  
-        res_d = CD3DX12_RESOURCE_DESC::Buffer(UINT64 width,D3D12_RESOURCE_FLAG_NONE,0);
+        res_d = CD3DX12_RESOURCE_DESC::Buffer(size,D3D12_RESOURCE_FLAG_NONE,0);
         
         D12Resource buffer_resource;
         UploadOp uop = {};
@@ -1691,29 +1757,35 @@ namespace D12RendererCode
             &res_d,
             D3D12_RESOURCE_STATE_COMMON,
             nullptr,
-            IID_PPV_ARGS(&tex_resource.state));
+            IID_PPV_ARGS(&buffer_resource.state));
         ASSERT(SUCCEEDED(hr));
         
         D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc2 = {};
-        srvDesc2.Format = DXGI_FORMAT_UNKNOWN;//DXGI_FORMAT_R8G8B8A8_UNORM;
+        srvDesc2.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;        
+        srvDesc2.Format = DXGI_FORMAT_R32_TYPELESS;
         srvDesc2.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;//D3D12_SRV_DIMENSION_TEXTURE2D;
-
-        u32 hmdh_size = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        srvDesc2.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+        srvDesc2.Buffer.FirstElement = 0;
+        srvDesc2.Buffer.NumElements = 200;
+        //srvDesc2.Buffer.StructureByteStride = sizeof(f32) * 16;
         
+        u32 hmdh_size = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+        D3D12_CPU_DESCRIPTOR_HANDLE hmdh = default_srv_desc_heap->GetCPUDescriptorHandleForHeapStart();        
         // TODO(Ray Garner): We will have to properly implement this later! For now we just keep adding texture as we cant remove them yet.
 
-        hmdh.ptr += (hmdh_size * tex_heap_count);
-        u32 first_free_texture_slot = tex_heap_count;        
-        lt->slot = first_free_texture_slot;
-        tex_heap_count++;
+        hmdh.ptr += (hmdh_size * srv_heap_count);
+        u32 first_free_buffer_slot = srv_heap_count;        
+        g_arena->slot = first_free_buffer_slot;
+        srv_heap_count++;
 
         device->CreateShaderResourceView((ID3D12Resource*)buffer_resource.state, &srvDesc2, hmdh);        
         
         D3D12_SUBRESOURCE_DATA subresourceData = {};
-        subresourceData.pData = gpu_arena.base;
+        subresourceData.pData = data;
         // TODO(Ray Garner): Handle minimum size for alignment.
         //This wont work for a smaller texture im pretty sure.
-        subresourceData.RowPitch = gpu_arena.size;//lt->dim.x * lt->bytes_per_pixel;
+        subresourceData.RowPitch = size;//lt->dim.x * lt->bytes_per_pixel;
 //        subresourceData.SlicePitch = subresourceData.RowPitch;
         UINT64 req_size = GetRequiredIntermediateSize( buffer_resource.state, 0, 1);
                 // Create a temporary (intermediate) resource for uploading the subresources
@@ -1729,6 +1801,49 @@ namespace D12RendererCode
         uop.temp_arena.resource->SetName(L"BUFFER TEMP_UPLOAD_TEXTURE");
         ASSERT(SUCCEEDED(hr));
         
+        hr = UpdateSubresources(resource_cl, 
+                                buffer_resource.state, uop.temp_arena.resource,
+                                (u32)0, (u32)0, (u32)1, &subresourceData);
+        
+        CheckFeatureSupport(&buffer_resource);
+        
+        g_arena->resource = buffer_resource.state;
+        fmj_thread_begin_ticket_mutex(&upload_operations.ticket_mutex);
+        uop.id = upload_operations.current_op_id++;
+        UploadOpKey k = {uop.id};
+        fmj_anycache_add_to_free_list(&upload_operations.table_cache,&k,&uop);
+        // NOTE(Ray Garner): Implement this.
+        //if(upload_ops.anythings.count > UPLOAD_OP_THRESHOLD)
+        {
+            if(is_resource_cl_recording)
+            {
+                resource_cl->Close();
+                is_resource_cl_recording = false;
+            }
+            ID3D12CommandList* const command_lists[] = {
+                resource_cl
+            };
+            D12RendererCode::copy_command_queue->ExecuteCommandLists(_countof(command_lists), command_lists);
+            upload_operations.fence_value = D12RendererCode::Signal(copy_command_queue, upload_operations.fence, upload_operations.fence_value);
+            
+            D12RendererCode::WaitForFenceValue(upload_operations.fence, upload_operations.fence_value, upload_operations.fence_event);
+            
+            //If we have gotten here we remove the temmp transient resource. and remove them from the cache
+            for(int i = 0;i < upload_operations.table_cache.anythings.fixed.count;++i)
+            {
+                UploadOp *finished_uop = (UploadOp*)fmj_stretch_buffer_get_(&upload_operations.table_cache.anythings,i);
+                // NOTE(Ray Garner): Upload should always be a copy operation and so we cant/dont need to 
+                //call discard resource.
+                // TODO(Ray Garner): Figure out how to properly release this
+                //finished_uop->temp_arena.resource->Release();
+                UploadOpKey k = {finished_uop->id};
+                //AnythingCacheCode::RemoveThingFL(&upload_operations.table_cache,&k);
+                fmj_anycache_remove_free_list(&upload_operations.table_cache,&k);
+            }
+            //AnythingCacheCode::ResetCache(&upload_operations.table_cache);
+            fmj_anycache_reset(&upload_operations.table_cache);
+        }
+        fmj_thread_end_ticket_mutex(&upload_operations.ticket_mutex);        
     }
 */
     

@@ -827,7 +827,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     rc.matrix = f4x4_identity();
     u64 quad_mem_size = SIZE_OF_SPRITE_IN_BYTES * 100;
     u64 matrix_mem_size = (sizeof(f32) * 16) * 100;    
-    GPUArena quad_gpu_arena = D12RendererCode::AllocateGPUArena(quad_mem_size);
+    GPUArena quad_gpu_arena = D12RendererCode::AllocateStaticGPUArena(quad_mem_size);
     GPUArena matrix_gpu_arena = D12RendererCode::AllocateGPUArena(matrix_mem_size);
     struct SpriteTrans
     {
@@ -848,36 +848,57 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     f2 sttl = f2_create(0.0f,1.0f);
     f2 uvs[4] = {stbl,stbr,sttr,sttl};
     f4 white = f4_create(1,1,1,1);
-    for(int i = 0;i < 1;++i)
+
+//    for(int i = 0;i < 2;++i)
     {
         SpriteTrans st = {0};
         FMJ3DTrans transform = {0};
         transform.p = f3_create(0,0,0);
+        transform.s = f3_create(14.0f,14.0f,4.0f);
+        transform.r = f3_axis_angle(f3_create(0,0,1),0);    
+        fmj_3dtrans_update(&transform);
+        
+        st.t = transform;
+        st.s = fmj_sprite_init(0,uvs,white,true);
+
+//        fmj_fixed_buffer_push(&matrix_quad_buffer,(void*)&st.t.m);        
+        fmj_fixed_buffer_push(&fixed_quad_buffer,(void*)&st);
+        fmj_sprite_add_quad_notrans(&sb.arena,transform.p,transform.r,transform.s,white,uvs);        
+    }
+    {
+        SpriteTrans st = {0};
+        FMJ3DTrans transform = {0};
+        transform.p = f3_create(10,0,0);
         transform.s = f3_create(4.0f,4.0f,4.0f);
         transform.r = f3_axis_angle(f3_create(0,0,1),0);    
         fmj_3dtrans_update(&transform);
+        
         st.t = transform;
         st.s = fmj_sprite_init(0,uvs,white,true);
-        fmj_fixed_buffer_push(&matrix_quad_buffer,(void*)&transform.m);        
+
+//        fmj_fixed_buffer_push(&matrix_quad_buffer,(void*)&st.t.m);        
         fmj_fixed_buffer_push(&fixed_quad_buffer,(void*)&st);
-        fmj_sprite_add_quad(&sb.arena,transform.p,transform.r,transform.s,white,uvs);        
+        fmj_sprite_add_quad_notrans(&sb.arena,transform.p,transform.r,transform.s,white,uvs);        
     }
-/*
+
+
     for(int i = 0;i < 10;++i)
     {
         SpriteTrans st = {0};
         FMJ3DTrans transform = {0};
-        transform.p = f3_create(i + 10,0,0);
-        transform.s = f3_create(5.0f,5.0f,5.0f);
+        transform.p = f3_create(i + 30,30,0);
+        transform.s = f3_create(2.0f,2.0f,2.0f);
         transform.r = f3_axis_angle(f3_create(0,0,1),0);    
         fmj_3dtrans_update(&transform);
+
         st.t = transform;
         st.s = fmj_sprite_init(1,uvs,white,true);
-        
+
+//        fmj_fixed_buffer_push(&matrix_quad_buffer,(void*)&st.t.m);
         fmj_fixed_buffer_push(&fixed_quad_buffer,(void*)&st);
-        fmj_sprite_add_quad(&sb.arena,transform.p,transform.r,transform.s,white,uvs);        
+        fmj_sprite_add_quad_notrans(&sb.arena,transform.p,transform.r,transform.s,white,uvs);        
     }
-*/    
+
     //Set data
     //...
     D12RendererCode::SetArenaToVertexBufferView(&quad_gpu_arena,quad_mem_size,stride);
@@ -885,14 +906,22 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 
     u64 m_stride = sizeof(f32) * 16;
     D12RendererCode::SetArenaToVertexBufferView(&matrix_gpu_arena,matrix_mem_size,m_stride);
-    D12RendererCode::UploadBufferData(&matrix_gpu_arena,matrix_quad_buffer.base,matrix_mem_size);    
-       
+//    D12RendererCode::UploadBufferData(&matrix_gpu_arena,matrix_quad_buffer.base,matrix_mem_size);    
+
+    D12RendererCode::SetArenaToConstantBuffer(&matrix_gpu_arena);
+    void* mapped_matrix_data;
+    matrix_gpu_arena.resource->Map(0,NULL,&mapped_matrix_data);
+
+//    D12RendererCode::UploadShaderResourceBuffer(&matrix_gpu_arena,matrix_quad_buffer.base,matrix_mem_size);
+
+    
 #if 1
     quad_gpu_arena.resource->SetName(L"QUADS_GPU_ARENA");
 #endif
     u32 tex_index = 0;
     f32 angle = 0;    
-    f2 cam_pitch_yaw = f2_create(0.0f,0.0f);    
+    f2 cam_pitch_yaw = f2_create(0.0f,0.0f);
+    f32 x_move = 0;
     while(ps->is_running)
     {
 //Get input
@@ -930,17 +959,31 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         for(int i = 0;i < fixed_quad_buffer.count;++i)
         {
             SpriteTrans st = fmj_fixed_buffer_get(SpriteTrans,&fixed_quad_buffer,i);
-            st.t.r = f3_axis_angle(f3_create(0,0,1),angle);
-            FMJ3DTrans t = st.t;
 
-            angle = angle + 0.01f;            
-            fmj_3dtrans_update(&t);    
-            f4x4 m_mat = f4x4_identity();//t.m;
+            st.t.r = f3_axis_angle(f3_create(0,0,1),angle);
+
+            if(0 == i % 2)
+              st.t.p.x = sin(x_move) * 20;
+            if(0 == i % 3)
+              st.t.p.y = sin(x_move) * 20;
+            
+            x_move = x_move + 0.001f;
+            
+            angle = angle + 0.01f;                        
+            
+            FMJ3DTrans t = st.t;
+            fmj_3dtrans_update(&t);
+
+            f4x4 m_mat = t.m;
             f4x4 c_mat = rc.matrix;
             f4x4 p_mat = rc.projection_matrix;
             f4x4 world_mat = f4x4_mul(c_mat,m_mat);
             f4x4 finalmat = f4x4_mul(p_mat,world_mat);
 
+            fmj_fixed_buffer_push(&matrix_quad_buffer,(void*)&finalmat);        
+
+            m_mat.c0.x = i * sizeof(f4x4);
+            
             D12RendererCode::AddGraphicsRoot32BitConstant(0,16,&m_mat,0);        
             D12RendererCode::AddGraphicsRoot32BitConstant(2,16,&finalmat,0);
             f4 clip_map_data = f4_create(0,(float)1,(float)1,(float)3);
@@ -952,10 +995,12 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             
         }
 
+        memcpy((void*)mapped_matrix_data,(void*)matrix_quad_buffer.base,sizeof(f4x4) * matrix_quad_buffer.count);
+        fmj_fixed_buffer_clear(&matrix_quad_buffer);
 //Command are finalized and rendering is started.        
  // TODO(Ray Garner): Add render targets commmand
         D12RendererCode::AddEndCommandListCommand();
-
+ 
 //        DrawTest test = {cube,rc,gpu_arena,test_desc_heap};
         DrawTest test = {};
 //Post frame work is done.
