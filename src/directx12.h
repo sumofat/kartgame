@@ -1497,7 +1497,7 @@ namespace D12RendererCode
             D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
             D3D12_RESOURCE_FLAG_NONE,
         };
-        
+        result.size = size;        
         // Create a committed resource for the GPU resource in a default heap.
         HRESULT r = (device->CreateCommittedResource(
             &hp,
@@ -1518,7 +1518,8 @@ namespace D12RendererCode
         srvDesc2.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;//D3D12_SRV_DIMENSION_TEXTURE2D;
         srvDesc2.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
         srvDesc2.Buffer.FirstElement = 0;
-        srvDesc2.Buffer.NumElements = 200;
+        u32 ele_num = (u32)arena->size / sizeof(f32);
+        srvDesc2.Buffer.NumElements = ele_num;
         //srvDesc2.Buffer.StructureByteStride = sizeof(f32) * 16;
         
         u32 hmdh_size = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
@@ -1566,7 +1567,7 @@ namespace D12RendererCode
             D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
             D3D12_RESOURCE_FLAG_NONE,
         };
-        
+        result.size = size;                
         // Create a committed resource for the GPU resource in a default heap.
         HRESULT r = (device->CreateCommittedResource(
             &hp,
