@@ -98,7 +98,7 @@ namespace D12ResourceState
     
     D3D12_ROOT_SIGNATURE_DESC1 root_sig_desc;
     
-    ID3D12PipelineState* pipeline_state;
+//    ID3D12PipelineState* pipeline_state;
     
     void SetRootSignatureDesc(ID3D12Device2* device,D12RootSignature* rs,
                               const D3D12_ROOT_SIGNATURE_DESC1& rootSignatureDesc,
@@ -189,6 +189,7 @@ namespace D12ResourceState
         
     }
     
+/*    
     void InitMipMapsPSO(ID3D12Device2* device)
     {
         D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData = {};
@@ -298,7 +299,7 @@ namespace D12ResourceState
                 );
         }
     }
-    
+*/    
     void Init(ID3D12Device2* device)
     {
         tracker.resource_table = fmj_anycache_init(4096,sizeof(ResourceTableEntry),sizeof(ResourceTableEntryKey),false);

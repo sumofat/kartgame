@@ -1,7 +1,4 @@
 
-Texture2D ts[3] : register(t0);
-SamplerState s1 : register(s0);
-
 struct ShaderVars
 {
     uint tex_index;
@@ -21,9 +18,5 @@ struct PixelShaderInput
 
 float4 main( PixelShaderInput IN ) : SV_Target
 {
-   float4 color = ts[shader_vars.tex_index].Sample(s1, IN.UV);
-   //return float4(color.rgb * color.a,color.a);
-   //return float4(0,0,1,0.1f);
-   //return IN.m_color;//color;
-   return color * IN.Color;
+   return IN.Color;
 }

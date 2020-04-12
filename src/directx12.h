@@ -62,6 +62,28 @@ struct GPUMemoryResult
     u64 CurrentReservation;
 };
 
+struct RenderShader
+{
+    char* vs_file_name;
+    char* fs_file_name;
+    ID3DBlob* vs_blob;
+    ID3DBlob* fs_blob;
+};
+
+struct PipelineStateStream
+{
+    CD3DX12_PIPELINE_STATE_STREAM_ROOT_SIGNATURE pRootSignature;
+    CD3DX12_PIPELINE_STATE_STREAM_INPUT_LAYOUT InputLayout;
+    CD3DX12_PIPELINE_STATE_STREAM_PRIMITIVE_TOPOLOGY PrimitiveTopologyType;
+    CD3DX12_PIPELINE_STATE_STREAM_VS VS;
+    CD3DX12_PIPELINE_STATE_STREAM_PS PS;
+    CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL_FORMAT DSVFormat;
+    CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS RTVFormats;
+    CD3DX12_PIPELINE_STATE_STREAM_RASTERIZER RasterizerState;
+    CD3DX12_PIPELINE_STATE_STREAM_BLEND_DESC blend_state;
+    CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL1 depth_stencil_state;            
+};
+
 struct LoadedTexture
 {
     void* texels;
@@ -199,13 +221,6 @@ struct GPUArena
         D3D12_VERTEX_BUFFER_VIEW buffer_view;
         D3D12_INDEX_BUFFER_VIEW index_buffer_view;
     };
-};
-
-struct DrawTest
-{
-    FMJ3DTrans ot;
-    GPUArena v_buffer;
-    ID3D12DescriptorHeap* heap;
 };
 
 struct UploadOperations
@@ -377,7 +392,7 @@ namespace D12RendererCode
     
     UploadOperations upload_operations;
     
-    ID3D12PipelineState* pipeline_state;
+//    ID3D12PipelineState* pipeline_state;
     ID3D12Resource* depth_buffer;
     ID3D12DescriptorHeap* dsv_heap;
     ID3D12RootSignature* root_sig;
@@ -423,6 +438,47 @@ namespace D12RendererCode
         ASSERT(SUCCEEDED(r));
         return result;
     }
+
+    void CompileShader_(char* file_name,void** blob,char* shader_version_and_type)
+    {
+        FMJFileReadResult file_result = fmj_file_platform_read_entire_file(file_name);
+        ASSERT(file_result.content_size > 0);
+
+        ID3DBlob* blob_errors;
+
+        HRESULT r = D3DCompile2(
+            file_result.content,
+            file_result.content_size,
+            file_name,
+            0,
+            0,
+            "main",
+            shader_version_and_type,
+            SHADER_DEBUG_FLAGS,
+            0,
+            0,
+            0,
+            0,
+            (ID3DBlob**)blob,
+            &blob_errors);
+        
+        if ( blob_errors )
+        {
+            OutputDebugStringA( (const char*)blob_errors->GetBufferPointer());
+        }
+    
+        ASSERT(SUCCEEDED(r));
+    }
+
+    RenderShader CreateRenderShader(char* vs_file_name,char* fs_file_name)
+    {
+        RenderShader result = {};
+        result.vs_file_name = vs_file_name;
+        result.fs_file_name = fs_file_name;
+        CompileShader_(vs_file_name,(void**)&result.vs_blob,"vs_5_1");
+        CompileShader_(fs_file_name,(void**)&result.fs_blob,"ps_5_1");
+        return result;
+    }
     
     ID3D12DescriptorHeap* CreateDescriptorHeap(int num_desc,D3D12_DESCRIPTOR_HEAP_TYPE type,D3D12_DESCRIPTOR_HEAP_FLAGS  flags)
     {
@@ -439,30 +495,16 @@ namespace D12RendererCode
         }
         return result;
     }
-    
-    ID3D12PipelineState*  CreatePipelineState(D3D12_INPUT_ELEMENT_DESC* input_layout,int input_layout_count,ID3DBlob* vs_blob,ID3DBlob* fs_blob)
+
+    PipelineStateStream CreateDefaultPipelineStateStreamDesc(D3D12_INPUT_ELEMENT_DESC* input_layout,int input_layout_count,ID3DBlob* vs_blob,ID3DBlob* fs_blob)
     {
-        ID3D12PipelineState* result;
-        struct PipelineStateStream
-        {
-            CD3DX12_PIPELINE_STATE_STREAM_ROOT_SIGNATURE pRootSignature;
-            CD3DX12_PIPELINE_STATE_STREAM_INPUT_LAYOUT InputLayout;
-            CD3DX12_PIPELINE_STATE_STREAM_PRIMITIVE_TOPOLOGY PrimitiveTopologyType;
-            CD3DX12_PIPELINE_STATE_STREAM_VS VS;
-            CD3DX12_PIPELINE_STATE_STREAM_PS PS;
-            CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL_FORMAT DSVFormat;
-            CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS RTVFormats;
-            CD3DX12_PIPELINE_STATE_STREAM_RASTERIZER RasterizerState;
-            CD3DX12_PIPELINE_STATE_STREAM_BLEND_DESC blend_state;            
-        };
-        
+        PipelineStateStream ppss = {}; 
         D3D12_RT_FORMAT_ARRAY rtv_formats = {};
         rtv_formats.NumRenderTargets = 1;
         rtv_formats.RTFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-
-        
-        PipelineStateStream ppss = {};
+ 
         ppss.pRootSignature = D12RendererCode::root_sig;
+        
         ppss.InputLayout = { input_layout,(u32)input_layout_count };
         
         ppss.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
@@ -471,6 +513,12 @@ namespace D12RendererCode
         ppss.DSVFormat = DXGI_FORMAT_D32_FLOAT;
         ppss.RTVFormats = rtv_formats;
         CD3DX12_DEFAULT d = {};
+
+        CD3DX12_DEPTH_STENCIL_DESC1 dss1 = CD3DX12_DEPTH_STENCIL_DESC1(d);
+        dss1.DepthEnable = false;
+        CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL1 dss = CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL1(dss1);
+        ppss.depth_stencil_state = dss;
+        
         CD3DX12_RASTERIZER_DESC raster_desc = CD3DX12_RASTERIZER_DESC(d);
         raster_desc.CullMode = D3D12_CULL_MODE_NONE;
         ppss.RasterizerState = CD3DX12_PIPELINE_STATE_STREAM_RASTERIZER(raster_desc);
@@ -479,13 +527,20 @@ namespace D12RendererCode
         bdx.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
         bdx.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
         ppss.blend_state = CD3DX12_PIPELINE_STATE_STREAM_BLEND_DESC(bdx);
-        
-        D3D12_PIPELINE_STATE_STREAM_DESC pipelineStateStreamDesc = 
+
+        return ppss;        
+    }
+
+    ID3D12PipelineState*  CreatePipelineState(PipelineStateStream pss)
+    {
+        ID3D12PipelineState* result;
+
+        D3D12_PIPELINE_STATE_STREAM_DESC pipeline_state_stream_desc = 
         {
-            sizeof(PipelineStateStream), &ppss
+            sizeof(PipelineStateStream), &pss
         };
-        
-        HRESULT r = device->CreatePipelineState(&pipelineStateStreamDesc, IID_PPV_ARGS(&result));
+
+        HRESULT r = device->CreatePipelineState(&pipeline_state_stream_desc, IID_PPV_ARGS(&result));
         ASSERT(SUCCEEDED(r));
         return result;
     }
@@ -1269,7 +1324,8 @@ namespace D12RendererCode
         }
         return result;
     }
-    
+
+    /*
     void GenerateMips(D12Resource texture)
     {
         //We know we will always generate mips on teh computer engine queue.
@@ -1436,6 +1492,7 @@ namespace D12RendererCode
             cl_entry.list->SetComputeRoot32BitConstants(0, sizeof(GenerateMipsCB) / sizeof(u32),&generateMipsCB  ,0);
         }
     }
+  */
     
     GPUArena AllocateGPUArena(u64 size);
     void UploadBufferData(GPUArena* g_arena,void* data,u64 size);
@@ -2015,7 +2072,7 @@ namespace D12RendererCode
         cle.list->ResourceBarrier(1, &barrier);
     }
     
-    void EndFrame(DrawTest *draw_test)
+    void EndFrame()
     {
         fmj_thread_begin_ticket_mutex(&upload_operations.ticket_mutex);
         u32 current_backbuffer_index = D12RendererCode::GetCurrentBackBufferIndex();
@@ -2158,7 +2215,7 @@ namespace D12RendererCode
                 current_cl.list->SetPipelineState(com->pipeline_state);
                 continue;
             }
-            
+
             else if(command_type == D12CommandType_Draw)
             {
                 D12CommandBasicDraw* com = Pop(at,D12CommandBasicDraw);
