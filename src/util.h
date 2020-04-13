@@ -41,6 +41,5 @@ LoadedTexture get_loaded_image(char* file,int desired_channels)
     ASSERT(tex.texels);
     return tex;
 }
-
 #define RESOURCE_H
 #endif

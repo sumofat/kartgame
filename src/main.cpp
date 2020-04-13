@@ -397,6 +397,7 @@ nullptr, 0, 0, 0, 0,
 
 struct SpriteTrans
 {
+    u64 id;
     u64  sprite_id;
     u64 material_id;
     u64 model_matrix_id;
@@ -410,6 +411,16 @@ struct AssetTables
     FMJStretchBuffer sprites;
     FMJStretchBuffer vertex_buffers;
 }typedef;
+
+FMJSprite add_sprite_to_stretch_buffer(FMJStretchBuffer* sprites,u64 material_id,u64 tex_id,f2 uvs[],f4 color,bool is_visible)
+{
+    FMJSprite result = {0};
+    result = fmj_sprite_init(tex_id,uvs,color,is_visible);
+    result.material_id = material_id;
+    u64 sprite_id = fmj_stretch_buffer_push(sprites,(void*)&result);
+    result.id = sprite_id;
+    return result;    
+}
 
 AssetTables asset_tables = {0};
 u64 material_count = 0;
@@ -449,6 +460,15 @@ void fmj_ui_commit_nodes_for_drawing(FMJMemoryArena* arena,FMJUINode base_node,F
         }
     }
 }
+
+struct Koma
+{
+    u64 inner_id;
+    u64 outer_id;
+    f3 velocity;
+}typedef Koma;
+
+FMJStretchBuffer komas;
 
 LRESULT CALLBACK MainWindowCallbackFunc(HWND Window,
                    UINT Message,
@@ -662,14 +682,27 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     //load texture to mem from disk
     LoadedTexture test_texture = get_loaded_image("test.png",4);
     LoadedTexture test_texture_2 = get_loaded_image("test2.png",4);    
-    LoadedTexture koma = get_loaded_image("koma_one.png",4);
+    LoadedTexture koma_2 = get_loaded_image("koma_2.png",4);
     LoadedTexture ping_title = get_loaded_image("ping_title.png",4);
+    LoadedTexture koma_outer_3 = get_loaded_image("koma_outer_3.png",4);    
+    LoadedTexture koma_outer_2 = get_loaded_image("koma_outer_2.png",4);
+    LoadedTexture koma_outer_1 = get_loaded_image("koma_outer_1.png",4);
+
+    //court stuff
+    LoadedTexture circle = get_loaded_image("circle.png",4);
+    LoadedTexture line   = get_loaded_image("line.png",4);
     
-     //upload texture data to gpu
-    D12RendererCode::Texture2D(&test_texture);
-    D12RendererCode::Texture2D(&test_texture_2);
-    D12RendererCode::Texture2D(&koma);
-    D12RendererCode::Texture2D(&ping_title);
+    //upload texture data to gpu
+    D12RendererCode::Texture2D(&test_texture,0);
+    D12RendererCode::Texture2D(&test_texture_2,1);
+    D12RendererCode::Texture2D(&koma_2,2);
+    D12RendererCode::Texture2D(&ping_title,3);
+    D12RendererCode::Texture2D(&koma_outer_1,5);
+    D12RendererCode::Texture2D(&koma_outer_2,6);
+    D12RendererCode::Texture2D(&koma_outer_3,7);        
+
+    D12RendererCode::Texture2D(&circle,8);
+    D12RendererCode::Texture2D(&line,9);        
     
     D12RendererCode::viewport = CD3DX12_VIEWPORT(0.0f, 0.0f,ps->window.dim.x, ps->window.dim.y);
     D12RendererCode::sis_rect = CD3DX12_RECT(0, 0, LONG_MAX, LONG_MAX);
@@ -795,8 +828,6 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         { "COLOR"   , 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,       0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
     };
-
-
     
     uint32_t input_layout_count = _countof(input_layout);
     // Create a root/shader signature.
@@ -858,7 +889,6 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     //create the descriptor heap that will store our srv
     //ID3D12DescriptorHeap* test_desc_heap;
     // = D12RendererCode::CreateDescriptorHeap(2,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE);
-
     
     RenderCamera rc = {};
     rc.ot.p = f3_create(0,0,0);
@@ -870,7 +900,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     rc.near_far_planes = f2_create(0,1);
     rc.matrix = f4x4_identity();
     u64 ortho_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,(void*)&rc.projection_matrix);
-    
+    u64 rc_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,(void*)&rc.matrix);
     RenderCamera rc_ui = {};
     rc_ui.ot.p = f3_create(0,0,0);
     rc_ui.ot.r = f3_axis_angle(f3_create(0,0,1),0);
@@ -944,48 +974,89 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     u64 ping_ui_id = fmj_stretch_buffer_push(&bkg_child.children,&title_child);
     u64 bkg_ui_id = fmj_stretch_buffer_push(&base_node.children,&bkg_child);    
 
-//enemy pieces
-    FMJSprite base_koma_sprite = {0};
-    base_koma_sprite = fmj_sprite_init(2,uvs,white,true);
-    base_koma_sprite.material_id = base_render_material.id;
-    u64 base_koma_sprite_id = fmj_stretch_buffer_push(&asset_tables.sprites,(void*)&base_koma_sprite);
+//pieces/komas
+    komas = fmj_stretch_buffer_init(1,sizeof(Koma),8);
+    
+    FMJSprite base_koma_sprite_2 = add_sprite_to_stretch_buffer(&asset_tables.sprites,base_render_material.id,2,uvs,white,true);
+    FMJSprite koma_sprite_outer_3 = add_sprite_to_stretch_buffer(&asset_tables.sprites,base_render_material.id,7,uvs,white,true);
+
+    FMJSprite circle_sprite = fmj_sprite_init(8,uvs,white,true);
+    FMJSprite line_sprite = fmj_sprite_init(9,uvs,white,true);    
+    circle_sprite.material_id = base_render_material.id;
+    line_sprite.material_id = base_render_material.id;
+
+    f32 scale = 14;
+    u64 circle_sprite_id = fmj_stretch_buffer_push(&asset_tables.sprites,(void*)&circle_sprite);
+    u64 line_sprite_id   = fmj_stretch_buffer_push(&asset_tables.sprites,(void*)&line_sprite);
+    SpriteTrans circle_st = {0};
+    FMJ3DTrans circle_transform = {0};
+    circle_transform.p = f3_create(0,0,0);
+    circle_transform.s = f3_create(30,30,1);
+    circle_transform.r = f3_axis_angle(f3_create(0,0,1),0);    
+    fmj_3dtrans_update(&circle_transform);
+    circle_st.t = circle_transform;
+    circle_st.sprite_id = circle_sprite_id;
+    circle_st.model_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,&circle_st.t.m);
+    u64 circle_id = fmj_fixed_buffer_push(&fixed_quad_buffer,(void*)&circle_st);
+    fmj_sprite_add_quad_notrans(&sb.arena,circle_transform.p,circle_transform.r,circle_transform.s,white,uvs);
+    
+    SpriteTrans line_st = {0};
+    FMJ3DTrans line_transform = {0};
+    line_transform.p = f3_create(0,0,0);
+    line_transform.s = f3_create(line.dim.x,line.dim.y,1);
+    line_transform.r = f3_axis_angle(f3_create(0,0,1),0);    
+    fmj_3dtrans_update(&line_transform);
+    line_st.t = line_transform;
+    line_st.sprite_id = line_sprite_id;
+    line_st.model_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,&line_st.t.m);
+
+    u64 line_id = fmj_fixed_buffer_push(&fixed_quad_buffer,(void*)&line_st);
+    fmj_sprite_add_quad_notrans(&sb.arena,line_transform.p,line_transform.r,line_transform.s,white,uvs);
+        
     f32 x_offset = 0;
+    u64 rot_test_st_id;
     for(int i = 0;i < 10;++i)
     {
+        Koma k = {0};
+        k.velocity = f3_s_mul(0.05,f3_normalize(f3_create(f32_random_range(0,1),f32_random_range(0,1),0)));
+        
+
         SpriteTrans st = {0};
         FMJ3DTrans transform = {0};
         transform.p = f3_create(0,0,0);
-        transform.s = f3_create(14.0f,14.0f,14.0f);
+        transform.s = f3_create(scale,scale,1.0f);
         transform.r = f3_axis_angle(f3_create(0,0,1),0);    
         fmj_3dtrans_update(&transform);
 
 //        x_offset += 50;
         st.t = transform;
-        st.sprite_id = base_koma_sprite_id;
+        st.sprite_id = base_koma_sprite_2.id;
         st.model_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,&st.t.m);
 
-        fmj_fixed_buffer_push(&fixed_quad_buffer,(void*)&st);
+        u64 inner_id = fmj_fixed_buffer_push(&fixed_quad_buffer,(void*)&st);
         fmj_sprite_add_quad_notrans(&sb.arena,transform.p,transform.r,transform.s,white,uvs);
-    }
-    
-/*
-//player pieces
-    for(int i = 0;i < 10;++i)
-    {
-        SpriteTrans st = {0};
-        FMJ3DTrans transform = {0};
-        transform.p = f3_create(i + 60,30,0);
-        transform.s = f3_create(2.0f,2.0f,2.0f);
-        transform.r = f3_axis_angle(f3_create(0,0,1),0);    
-        fmj_3dtrans_update(&transform);
 
-        st.t = transform;
-        st.s = fmj_sprite_init(1,uvs,white,true);
+        k.inner_id = inner_id;
+        
+        scale = 18;
+        //Outer sprite
+        SpriteTrans ost = {0};
+        FMJ3DTrans o_transform = {0};
+        o_transform.p = f3_create(0,0,0);
+        o_transform.s = f3_create(scale,scale,1.0f);
+        o_transform.r = f3_axis_angle(f3_create(0,0,1),0);    
+        fmj_3dtrans_update(&o_transform);
+        ost.t = o_transform;
+        
+        ost.sprite_id = koma_sprite_outer_3.id;
+        ost.model_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,&ost.t.m);        
 
-        fmj_fixed_buffer_push(&fixed_quad_buffer,(void*)&st);
-        fmj_sprite_add_quad_notrans(&sb.arena,transform.p,transform.r,transform.s,white,uvs);        
+        u64 outer_id = fmj_fixed_buffer_push(&fixed_quad_buffer,(void*)&ost);
+        fmj_sprite_add_quad_notrans(&sb.arena,o_transform.p,o_transform.r,o_transform.s,white,uvs);
+        k.outer_id = outer_id;
+
+        fmj_stretch_buffer_push(&komas,(void*)&k);
     }
-*/
     
     fmj_ui_evaluate_node(&base_node,&ui_state.hot_node_state);
 
@@ -1006,7 +1077,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     D12RendererCode::UploadBufferData(&ui_quad_gpu_arena,sb_ui.arena.base,quad_mem_size);
     
     u64 m_stride = sizeof(f32) * 16;
-    D12RendererCode::SetArenaToConstantBuffer(&matrix_gpu_arena);
+    D12RendererCode::SetArenaToConstantBuffer(&matrix_gpu_arena,4);
     void* mapped_matrix_data;
     matrix_gpu_arena.resource->Map(0,NULL,&mapped_matrix_data);
     
@@ -1019,7 +1090,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     f2 cam_pitch_yaw = f2_create(0.0f,0.0f);
     f32 x_move = 0;
     bool show_title = true;
-    
+    f32 outer_angle_rot = 0;    
+    u32 tex_id;
     while(ps->is_running)
     {
 //Get input
@@ -1032,13 +1104,72 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         {
             ps->is_running = false;
         }
-
-        if(ps->input.mouse.lmb.pressed && show_title)
-        {
-            show_title = false;
-            fmj_ui_evaluate_on_node_recursively(&base_node,SetSpriteNonVisible);
-        }
         
+        for(int i = 0;i < komas.fixed.count;++i)
+        {
+            Koma* k = fmj_stretch_buffer_check_out(Koma,&komas,i);
+
+            SpriteTrans* inner_koma_st = fmj_fixed_buffer_get_ptr(SpriteTrans,&fixed_quad_buffer,k->inner_id);
+            SpriteTrans* outer_koma_st = fmj_fixed_buffer_get_ptr(SpriteTrans,&fixed_quad_buffer,k->outer_id);
+            FMJ3DTrans  new_trans =  inner_koma_st->t;
+
+            f2  top_right_screen_xy = f2_create(ps->window.dim.x,ps->window.dim.y-50);
+            f2  bottom_left_xy = f2_create(0,0);
+            
+            f4x4 p_mat = fmj_stretch_buffer_get(f4x4,&matrix_buffer,ortho_matrix_id);
+            f4x4 c_mat = fmj_stretch_buffer_get(f4x4,&matrix_buffer,rc_matrix_id);
+
+            f3 max_screen_p = f3_screen_to_world_point(p_mat,c_mat,ps->window.dim,top_right_screen_xy,0);
+            f3 lower_screen_p = f3_screen_to_world_point(p_mat,c_mat,ps->window.dim,bottom_left_xy,0);
+
+            f3 p = inner_koma_st->t.p;
+            f3 new_vel = k->velocity;
+            f3 v = k->velocity;
+            {
+                if(p.x > max_screen_p.x)
+                {
+                    new_vel = f3_reflect(v,f3_create(-1,0,0));
+                }
+                else if(p.y > max_screen_p.y)
+                {
+                    new_vel = f3_reflect(v,f3_create(0,-1,0));
+                }else if(p.x < lower_screen_p.x)
+                {
+                    new_vel = f3_reflect(v,f3_create(1,0,0));
+                }
+                else if(p.y < lower_screen_p.y)
+                {
+                    new_vel = f3_reflect(v,f3_create(0,1,0));                    
+                }
+            }
+            
+            k->velocity = f3_s_mul(0.05,f3_normalize(new_vel));
+            inner_koma_st->t.p = f3_add(inner_koma_st->t.p,k->velocity);
+            outer_koma_st->t.p = inner_koma_st->t.p;
+            
+            outer_koma_st->t.r = f3_axis_angle(f3_create(0,0,1),outer_angle_rot);
+            outer_angle_rot += 0.01f;
+            fmj_3dtrans_update(&outer_koma_st->t);
+            fmj_3dtrans_update(&inner_koma_st->t);
+            
+            FMJSprite* s = fmj_stretch_buffer_check_out(FMJSprite,&asset_tables.sprites,outer_koma_st->sprite_id);
+            u32 id = s->tex_id;
+            f4x4* outer_model_matrix = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,outer_koma_st->model_matrix_id);
+            *outer_model_matrix = outer_koma_st->t.m;
+            f4x4* inner_model_matrix = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,inner_koma_st->model_matrix_id);
+            *inner_model_matrix = inner_koma_st->t.m;
+            
+            if(ps->input.mouse.lmb.pressed)
+            {
+                show_title = false;
+                fmj_ui_evaluate_on_node_recursively(&base_node,SetSpriteNonVisible);
+
+                id =  (id - 1);
+                if(id < 5)id = 7;
+                s->tex_id = id;
+            }
+        }
+
 //Render camera stated etc..  is finalized        
  //Free cam
 #if 0
@@ -1049,9 +1180,10 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         rc.ot.r = turn_qt;
 #endif
         rc.matrix = fmj_3dtrans_set_cam_view(&rc.ot);
-        u64 rc_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,(void*)&rc.matrix);
-
-
+        f4x4* rc_mat = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,rc_matrix_id);
+        *rc_mat = rc.matrix;
+        fmj_stretch_buffer_check_in(&matrix_buffer);
+        
         for(int i = 0;i < fixed_quad_buffer.count;++i)
         {
             FMJRenderCommand com = {};
@@ -1133,46 +1265,6 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             D12RendererCode::AddEndCommandListCommand();                            
         }
 
-/*
-        if(fixed_quad_buffer.count > 0)
-        {
-//            D12RendererCode::AddStartCommandListCommand();                            
-            //orth cam
-            for(int i = 0;i < fixed_quad_buffer.count;++i)
-            {
-                SpriteTrans st = fmj_fixed_buffer_get(SpriteTrans,&fixed_quad_buffer,i);
-                FMJSprite s = fmj_stretch_buffer_get(FMJSprite,&asset_tables.sprites,st.sprite_id);
-                
-                FMJ3DTrans t = st.t;
-                fmj_3dtrans_update(&t);
-
-                f4x4 m_mat = t.m;
-                f4x4 c_mat = rc.matrix;
-                f4x4 p_mat = rc.projection_matrix;            
-                f4x4 world_mat = f4x4_mul(c_mat,m_mat);
-                f4x4 finalmat = f4x4_mul(p_mat,world_mat);
-
-                m_mat.c0.x = (f32)(matrix_quad_buffer.count * sizeof(f4x4));            
-
-                fmj_fixed_buffer_push(&matrix_quad_buffer,(void*)&finalmat);        
-
-                D12RendererCode::AddRootSignatureCommand(D12RendererCode::root_sig);
-                D12RendererCode::AddViewportCommand(f4_create(0,0,ps->window.dim.x,ps->window.dim.y));
-                D12RendererCode::AddScissorRectCommand(CD3DX12_RECT(0,0,LONG_MAX,LONG_MAX));
-
-                D12RendererCode::AddPipelineStateCommand(pipeline_state);
-                D12RendererCode::AddGraphicsRoot32BitConstant(0,16,&m_mat,0);                    
-                D12RendererCode::AddGraphicsRoot32BitConstant(2,16,&finalmat,0);
-
-                tex_index = s.tex_id;
-                D12RendererCode::AddGraphicsRoot32BitConstant(4,4,&tex_index,0);
-                D12RendererCode::AddGraphicsRootDescTable(1,D12RendererCode::default_srv_desc_heap,D12RendererCode::default_srv_desc_heap->GetGPUDescriptorHandleForHeapStart());                    
-                D12RendererCode::AddDrawCommand((i * 6),6,D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,quad_gpu_arena.buffer_view);
-                has_update = true;
-            }
-//            D12RendererCode::AddEndCommandListCommand();                                        
-        }
-*/
         if(has_update)
         {
             memcpy((void*)mapped_matrix_data,(void*)matrix_quad_buffer.mem_arena.base,matrix_quad_buffer.mem_arena.used);

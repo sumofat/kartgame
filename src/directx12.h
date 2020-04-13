@@ -406,7 +406,7 @@ namespace D12RendererCode
     
     D12RenderCommandList render_com_buf;
     ID3D12DescriptorHeap* default_srv_desc_heap;
-    u32 srv_heap_count;
+//    u32 srv_heap_count;
     
     ID3D12RootSignature* CreatRootSignature(D3D12_ROOT_PARAMETER1* params,int param_count,D3D12_STATIC_SAMPLER_DESC* samplers,int sampler_count,D3D12_ROOT_SIGNATURE_FLAGS flags)
     {
@@ -1196,7 +1196,7 @@ namespace D12RendererCode
     
     void Init()
     {
-        srv_heap_count = 0;
+//        srv_heap_count = 0;
         allocator_tables = {};
         allocator_tables.free_allocator_table = fmj_stretch_buffer_init(1,sizeof(D12CommandAllocatorEntry*),8);
         allocator_tables.free_allocator_table_copy = fmj_stretch_buffer_init(1,sizeof(D12CommandAllocatorEntry*),8);
@@ -1567,7 +1567,7 @@ namespace D12RendererCode
         return result;
     }
 
-    void SetArenaToConstantBuffer(GPUArena* arena)
+    void SetArenaToConstantBuffer(GPUArena* arena,u32 heap_index)
     {
         D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc2 = {};
         srvDesc2.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;        
@@ -1584,10 +1584,10 @@ namespace D12RendererCode
         D3D12_CPU_DESCRIPTOR_HANDLE hmdh = default_srv_desc_heap->GetCPUDescriptorHandleForHeapStart();        
         // TODO(Ray Garner): We will have to properly implement this later! For now we just keep adding texture as we cant remove them yet.
 
-        hmdh.ptr += (hmdh_size * srv_heap_count);
-        u32 first_free_buffer_slot = srv_heap_count;        
-        arena->slot = first_free_buffer_slot;
-        srv_heap_count++;
+        hmdh.ptr += (hmdh_size * heap_index);
+//      u32 first_free_buffer_slot = heap_index;        
+//      arena->slot = first_free_buffer_slot;
+//      srv_heap_count++;
 
         device->CreateShaderResourceView((ID3D12Resource*)arena->resource, &srvDesc2, hmdh);        
     }
@@ -1644,7 +1644,7 @@ namespace D12RendererCode
     // we will make space on the gpu and upload the texture from cpu
     //to gpu right away. LoadedTexture is like the descriptor and also
     //holds a pointer to the texels on cpu.
-    void Texture2D(LoadedTexture* lt)
+    void Texture2D(LoadedTexture* lt,u32 heap_index)
     {
         D12CommandAllocatorEntry* free_ca  = GetFreeCommandAllocatorEntry(D3D12_COMMAND_LIST_TYPE_COPY);
         resource_ca = free_ca->allocator;
@@ -1698,10 +1698,10 @@ namespace D12RendererCode
         
         // TODO(Ray Garner): We will have to properly implement this later! For now we just keep adding texture as we cant remove them yet.
 
-        hmdh.ptr += (hmdh_size * srv_heap_count);
-        u32 first_free_texture_slot = srv_heap_count;        
-        lt->slot = first_free_texture_slot;
-        srv_heap_count++;
+        hmdh.ptr += (hmdh_size * heap_index);
+//        u32 first_free_texture_slot = srv_heap_count;        
+//        lt->slot = first_free_texture_slot;
+//        srv_heap_count++;
         
         device->CreateShaderResourceView((ID3D12Resource*)tex_resource.state, &srvDesc2, hmdh);
         
