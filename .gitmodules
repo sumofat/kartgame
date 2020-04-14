@@ -1,3 +1,6 @@
 [submodule "src/fmj"]
 	path = src/fmj
 	url = https://github.com/godratio/FullMetalJacket.git
+[submodule "external/physx"]
+	path = external/physx
+	url = https://github.com/NVIDIAGameWorks/PhysX.git

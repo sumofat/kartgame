@@ -12,6 +12,102 @@ extern "C"{
 #include "directx12.h"
 #include "util.h"
 
+#include "sound_interface.h"
+#include "sound_interface.cpp"
+
+#include "physics.h"
+#include "physics.cpp"
+
+static SoundClip bgm_soundclip;
+PhysicsScene scene;
+PhysicsMaterial material;
+f32 ground_friction = 0.991f;
+
+struct Koma
+{
+    u64 inner_id;
+    u64 outer_id;
+//    f3 velocity;
+    RigidBodyDynamic rigid_body;    
+}typedef Koma;
+
+
+bool prev_lmb_state = false;
+struct FingerPull
+{
+    f2 start_pull_p;
+    f2 end_pull_p;
+    float pull_strength;
+    bool pull_begin = false;
+    Koma* koma;
+};
+
+static FingerPull finger_pull = {};
+
+bool CheckValidFingerPull(FingerPull* fp)
+{
+    ASSERT(fp);
+    fp->pull_strength = abs(f2_length(f2_sub(fp->start_pull_p,fp->end_pull_p)));
+    if(fp->pull_strength > 2)
+    {
+        return true;
+    }
+    fp->pull_strength = 0;
+    return false;
+}
+
+class GamePiecePhysicsCallback : public PxSimulationEventCallback
+{
+	void onConstraintBreak(PxConstraintInfo* constraints, PxU32 count) override
+	{
+		int a = 0;
+	}
+	void onWake(PxActor** actors, PxU32 count) override
+	{
+		int a = 0;
+	}
+	void onSleep(PxActor** actors, PxU32 count) override
+	{
+		int a = 0;
+	}
+	void onTrigger(PxTriggerPair* pairs, PxU32 count) override
+	{
+		int a = 0;
+	}
+	void onAdvance(const PxRigidBody*const* bodyBuffer, const PxTransform* poseBuffer, const PxU32 count) override
+	{
+		int a = 0;
+	}
+
+	void onContact(const PxContactPairHeader& pairHeader, const PxContactPair* pairs, PxU32 nbPairs) override
+	{
+#if 0
+		for (PxU32 i = 0; i < nbPairs; i++)
+		{
+			const PxContactPair& cp = pairs[i];
+			if ((pairHeader.actors[0] == rigid_body) ||
+				(pairHeader.actors[1] == rigid_body))
+			{
+				if (cp.events & PxPairFlag::eNOTIFY_TOUCH_PERSISTS)
+				{
+					PlatformOutput(true, "Touch is persisting\n");
+				}
+				if (cp.events & PxPairFlag::eNOTIFY_TOUCH_LOST)
+				{
+					PlatformOutput(true, "Touch is Lost\n");
+				}
+				if (cp.events & PxPairFlag::eNOTIFY_TOUCH_FOUND)
+				{
+					PlatformOutput(true, "Touch is Found\n");
+				}
+			}
+		}
+#endif
+        //PlatformOutput(true, "OnContact");
+	}
+};
+
+
 enum RenderCameraProjectionType
 {
     perspective,
@@ -404,6 +500,29 @@ struct SpriteTrans
     FMJ3DTrans t;
 }typedef SpriteTrans;
 
+u64 sprite_trans_create(f3 p,f3 s,quaternion r,f4 color,u64 sprite_id,FMJStretchBuffer* matrix_buffer,FMJFixedBuffer* buffer,FMJMemoryArena* sb_arena)
+{
+    f2 stbl = f2_create(0.0f,0.0f);
+    f2 stbr = f2_create(1.0f,0.0f);
+    f2 sttr = f2_create(1.0f,1.0f);
+    f2 sttl = f2_create(0.0f,1.0f);
+    f2 uvs[4] = {stbl,stbr,sttr,sttl};
+    
+    SpriteTrans result = {0};
+    FMJ3DTrans t = {0};
+    t.p = p;
+    t.s = s;
+    t.r = r;
+    fmj_3dtrans_update(&t);
+    result.t = t;
+    result.sprite_id = sprite_id;
+    result.model_matrix_id = fmj_stretch_buffer_push(matrix_buffer,&result.t.m);
+    u64 id = fmj_fixed_buffer_push(buffer,(void*)&result);
+    //NOTE(Ray):PRS is not used here  just the matrix that is passed above.
+    fmj_sprite_add_quad_notrans(sb_arena,p,r,s,color,uvs);
+    return id;
+}
+
 struct AssetTables
 {
     AnyCache materials;
@@ -460,13 +579,6 @@ void fmj_ui_commit_nodes_for_drawing(FMJMemoryArena* arena,FMJUINode base_node,F
         }
     }
 }
-
-struct Koma
-{
-    u64 inner_id;
-    u64 outer_id;
-    f3 velocity;
-}typedef Koma;
 
 FMJStretchBuffer komas;
 
@@ -599,9 +711,9 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         ErrorCode = GetLastError();
         if(created_window)
         {
-            ShowWindow(created_window, n_show_cmd);
             window->handle = created_window;
-
+            WINSetScreenMode(ps,true);            
+            ShowWindow(created_window, n_show_cmd);
         }
         else
         {
@@ -707,6 +819,43 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     D12RendererCode::viewport = CD3DX12_VIEWPORT(0.0f, 0.0f,ps->window.dim.x, ps->window.dim.y);
     D12RendererCode::sis_rect = CD3DX12_RECT(0, 0, LONG_MAX, LONG_MAX);
 
+    FMJMemoryArena permanent_strings = fmj_arena_allocate(FMJMEGABYTES(1));
+    FMJMemoryArena temp_strings = fmj_arena_allocate(FMJMEGABYTES(1));    
+    FMJString base_path_to_data = fmj_string_create("../data/Desktop/",&permanent_strings);
+    
+    //setup audio system and load sound assets.
+    SoundAssetCode::Init();
+    SoundCode::Init();
+    SoundCode::SetDefaultListener();
+    PhysicsCode::Init();
+    char* file_name = "Master.strings.bank";
+    FMJString mat_final_path = fmj_string_append_char(base_path_to_data, file_name,&temp_strings);
+        
+    SoundAssetCode::CreateSoundBank(mat_final_path.string);
+        
+    char* bsfile_name = "Master.bank";
+    mat_final_path = fmj_string_append_char(base_path_to_data, bsfile_name,&temp_strings);
+    SoundAssetCode::CreateSoundBank(mat_final_path.string);
+        
+    char* afile_name = "bgm.bank";
+    mat_final_path = fmj_string_append_char(base_path_to_data, afile_name, &temp_strings);
+    SoundAssetCode::CreateSoundBank(mat_final_path.string);
+    SoundAssetCode::LoadBankSampleData();
+    //SoundAssetCode::GetBus("bus:/bgmgroup");
+    SoundAssetCode::GetEvent("event:/bgm",&bgm_soundclip);
+
+    //end audio setup
+
+    //BEGIN Setup physics stuff
+    material = PhysicsCode::CreateMaterial(0.0f, 0.0f, 1.0f);
+    PhysicsCode::SetRestitutionCombineMode(material,physx::PxCombineMode::eMIN);
+    PhysicsCode::SetFrictionCombineMode(material,physx::PxCombineMode::eMIN);
+    scene = PhysicsCode::CreateScene(PhysicsCode::DefaultFilterShader);
+    GamePiecePhysicsCallback* e = new GamePiecePhysicsCallback();
+    PhysicsCode::SetSceneCallback(&scene, e);
+    //GamePieceCode::SetPieces(scene, program, lt,life_lt, material, dim,true);
+    //END PHYSICS SETUP
+ 
      // Create the descriptor heap for the depth-stencil view.
     D3D12_DESCRIPTOR_HEAP_DESC dsv_h_d = {};
     dsv_h_d.NumDescriptors = 1;
@@ -855,6 +1004,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 
     FMJRenderMaterial color_render_material = base_render_material;
     color_render_material.pipeline_state = (void*)color_pipeline_state;
+    color_render_material.viewport_rect = f4_create(0,0,ps->window.dim.x,ps->window.dim.y);
+    color_render_material.scissor_rect = f4_create(0,0,LONG_MAX,LONG_MAX);    
     color_render_material.id = material_count;
     fmj_anycache_add_to_free_list(&asset_tables.materials,(void*)&material_count,&color_render_material);    
     material_count++;
@@ -894,7 +1045,11 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     rc.ot.p = f3_create(0,0,0);
     rc.ot.r = f3_axis_angle(f3_create(0,0,1),0);
     rc.ot.s = f3_create(1,1,1);
-    rc.projection_matrix = init_ortho_proj_matrix(f2_create(100.0f,100.0f),0.0f,1.0f);
+
+    f32 aspect_ratio = ps->window.dim.x / ps->window.dim.y;
+    f2 size = f2_create_f(300);
+    size.x = size.x * aspect_ratio;
+    rc.projection_matrix = init_ortho_proj_matrix(size,0.0f,1.0f);
     
     rc.fov = 80;
     rc.near_far_planes = f2_create(0,1);
@@ -907,6 +1062,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     rc_ui.ot.s = f3_create(1,1,1);
     rc_ui.projection_matrix = init_screen_space_matrix(ps->window.dim);
     rc_ui.matrix = f4x4_identity();
+    
     u64 screen_space_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,(void*)&rc_ui.projection_matrix);
     u64 identity_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,(void*)&rc_ui.matrix);
     
@@ -981,85 +1137,94 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     FMJSprite koma_sprite_outer_3 = add_sprite_to_stretch_buffer(&asset_tables.sprites,base_render_material.id,7,uvs,white,true);
 
     FMJSprite circle_sprite = fmj_sprite_init(8,uvs,white,true);
-    FMJSprite line_sprite = fmj_sprite_init(9,uvs,white,true);    
+    FMJSprite line_sprite = fmj_sprite_init(9,uvs,white,true);
+    FMJSprite court_sprite = fmj_sprite_init(0,uvs,white,true);        
     circle_sprite.material_id = base_render_material.id;
     line_sprite.material_id = base_render_material.id;
+    court_sprite.material_id = color_render_material.id;
+    
 
-    f32 scale = 14;
     u64 circle_sprite_id = fmj_stretch_buffer_push(&asset_tables.sprites,(void*)&circle_sprite);
     u64 line_sprite_id   = fmj_stretch_buffer_push(&asset_tables.sprites,(void*)&line_sprite);
-    SpriteTrans circle_st = {0};
-    FMJ3DTrans circle_transform = {0};
-    circle_transform.p = f3_create(0,0,0);
-    circle_transform.s = f3_create(30,30,1);
-    circle_transform.r = f3_axis_angle(f3_create(0,0,1),0);    
-    fmj_3dtrans_update(&circle_transform);
-    circle_st.t = circle_transform;
-    circle_st.sprite_id = circle_sprite_id;
-    circle_st.model_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,&circle_st.t.m);
-    u64 circle_id = fmj_fixed_buffer_push(&fixed_quad_buffer,(void*)&circle_st);
-    fmj_sprite_add_quad_notrans(&sb.arena,circle_transform.p,circle_transform.r,circle_transform.s,white,uvs);
-    
-    SpriteTrans line_st = {0};
-    FMJ3DTrans line_transform = {0};
-    line_transform.p = f3_create(0,0,0);
-    line_transform.s = f3_create(line.dim.x,line.dim.y,1);
-    line_transform.r = f3_axis_angle(f3_create(0,0,1),0);    
-    fmj_3dtrans_update(&line_transform);
-    line_st.t = line_transform;
-    line_st.sprite_id = line_sprite_id;
-    line_st.model_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,&line_st.t.m);
+    u64 court_sprite_id   = fmj_stretch_buffer_push(&asset_tables.sprites,(void*)&court_sprite);    
 
-    u64 line_id = fmj_fixed_buffer_push(&fixed_quad_buffer,(void*)&line_st);
-    fmj_sprite_add_quad_notrans(&sb.arena,line_transform.p,line_transform.r,line_transform.s,white,uvs);
-        
+    quaternion def_r = f3_axis_angle(f3_create(0,0,1),0);
+    f32 court_size_y = 500;
+    f32 court_size_x = line.dim.x;
+    
+    u64  court_id = sprite_trans_create(f3_create_f(0),f3_create(line.dim.x,court_size_y,1),def_r,white,court_sprite_id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
+//    u64  court_id = sprite_trans_create(f3_create_f(0),f3_create(100,100,1),def_r,white,court_sprite_id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);        
+    u64  circle_id = sprite_trans_create(f3_create_f(0),f3_create(30,30,1),def_r,white,circle_sprite_id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);    
+    u64  line_id = sprite_trans_create(f3_create_f(0),f3_create(line.dim.x,line.dim.y,1),def_r,white,line_sprite_id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
+
+    f2  top_right_screen_xy = f2_create(ps->window.dim.x,ps->window.dim.y);
+    f2  bottom_left_xy = f2_create(0,0);
+
+    f3 max_screen_p = f3_screen_to_world_point(rc.projection_matrix,rc.matrix,ps->window.dim,top_right_screen_xy,0);
+    f3 lower_screen_p = f3_screen_to_world_point(rc.projection_matrix,rc.matrix,ps->window.dim,bottom_left_xy,0);
+
+    f32 half_court_x =  (f32)line.dim.x / 2.0f;
+    f32 half_court_y = court_size_y / 2.0f;
+    f32 court_slot_x = court_size_x / 6.0f;
+
     f32 x_offset = 0;
     u64 rot_test_st_id;
-    for(int i = 0;i < 10;++i)
+
+    f3 koma_bottom_left = f3_create(-half_court_x + court_slot_x,-half_court_y + court_slot_x,0);
+    f3 koma_top_right = f3_create(-half_court_x + court_slot_x,half_court_y - court_slot_x,0);        
+    f3 start_pos = f3_create_f(0);
+    f3 current_pos = f3_create(0,0,-5);
+    for(int o = 0;o < 2;++o)
     {
-        Koma k = {0};
-        k.velocity = f3_s_mul(0.05,f3_normalize(f3_create(f32_random_range(0,1),f32_random_range(0,1),0)));
+        if(o == 0)
+            start_pos = koma_bottom_left;
+        else
+            start_pos = koma_top_right;
+
+        f3 current_pos = start_pos;
+        for(int i = 0;i < 10;++i)
+        {
+            f32 scale = 14;
+            f3 next_p = current_pos;        
+            Koma k = {0};
+
+            u64  inner_id = sprite_trans_create(next_p,f3_create(scale,scale,1),def_r,white,base_koma_sprite_2.id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
+//        k.velocity = f3_s_mul(0.05,f3_normalize(f3_create(f32_random_range(0,1),f32_random_range(0,1),0)));        
+            k.inner_id = inner_id;
         
+            scale = 18;
 
-        SpriteTrans st = {0};
-        FMJ3DTrans transform = {0};
-        transform.p = f3_create(0,0,0);
-        transform.s = f3_create(scale,scale,1.0f);
-        transform.r = f3_axis_angle(f3_create(0,0,1),0);    
-        fmj_3dtrans_update(&transform);
-
-//        x_offset += 50;
-        st.t = transform;
-        st.sprite_id = base_koma_sprite_2.id;
-        st.model_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,&st.t.m);
-
-        u64 inner_id = fmj_fixed_buffer_push(&fixed_quad_buffer,(void*)&st);
-        fmj_sprite_add_quad_notrans(&sb.arena,transform.p,transform.r,transform.s,white,uvs);
-
-        k.inner_id = inner_id;
+            u64  outer_id = sprite_trans_create(next_p,f3_create(scale,scale,1),def_r,white,koma_sprite_outer_3.id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
+            k.outer_id = outer_id;
         
-        scale = 18;
-        //Outer sprite
-        SpriteTrans ost = {0};
-        FMJ3DTrans o_transform = {0};
-        o_transform.p = f3_create(0,0,0);
-        o_transform.s = f3_create(scale,scale,1.0f);
-        o_transform.r = f3_axis_angle(f3_create(0,0,1),0);    
-        fmj_3dtrans_update(&o_transform);
-        ost.t = o_transform;
+            PhysicsShapeSphere sphere_shape = PhysicsCode::CreateSphere(scale/2,material);
+            RigidBodyDynamic rbd = PhysicsCode::CreateDynamicRigidbody(next_p, sphere_shape.shape, false);
+            PhysicsCode::AddActorToScene(scene, rbd);
+            PhysicsCode::DisableGravity(rbd.state,true);
+            k.rigid_body = rbd;
+            PhysicsCode::UpdateRigidBodyMassAndInertia(k.rigid_body,1);
+            PhysicsCode::SetMass(k.rigid_body,1);
+
+            fmj_stretch_buffer_push(&komas,(void*)&k);
+            scale = scale * 2;
         
-        ost.sprite_id = koma_sprite_outer_3.id;
-        ost.model_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,&ost.t.m);        
+            if(0 == (i + 1) % 5)
+            {
+                if(o == 0)
+                    current_pos = f3_add(current_pos,f3_create(0,court_slot_x,0));
+                else
+                    current_pos = f3_sub(current_pos,f3_create(0,court_slot_x,0));
+            
+                current_pos = f3_create(start_pos.x,current_pos.y,0);
+            }
+            else
+            {
+                current_pos = f3_add(current_pos,f3_create(court_slot_x,0,0));
+            }        
+        }
+    }    
 
-        u64 outer_id = fmj_fixed_buffer_push(&fixed_quad_buffer,(void*)&ost);
-        fmj_sprite_add_quad_notrans(&sb.arena,o_transform.p,o_transform.r,o_transform.s,white,uvs);
-        k.outer_id = outer_id;
-
-        fmj_stretch_buffer_push(&komas,(void*)&k);
-    }
-    
     fmj_ui_evaluate_node(&base_node,&ui_state.hot_node_state);
-
     fmj_ui_commit_nodes_for_drawing(&sb_ui.arena,base_node,&ui_fixed_quad_buffer,white,uvs);
 
     D12RendererCode::SetArenaToVertexBufferView(&quad_gpu_arena,quad_mem_size,stride);
@@ -1092,6 +1257,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     bool show_title = true;
     f32 outer_angle_rot = 0;    
     u32 tex_id;
+    f32 size_sin = 0;
     while(ps->is_running)
     {
 //Get input
@@ -1104,26 +1270,106 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         {
             ps->is_running = false;
         }
+
+        if(ps->input.mouse.lmb.down)
+        {
+            //Begin the pull
+            finger_pull.pull_begin = true;
+            if(!finger_pull.koma)
+            {
+                //find the hovered unit
+                PxScene* cs = scene.state;
+                f3 origin_3 = f3_screen_to_world_point(rc.projection_matrix,rc.matrix,ps->window.dim,ps->input.mouse.p,0);                
+                PxVec3 origin = PxVec3(origin_3.x,origin_3.y,origin_3.z);
+                //PxVec3 origin = PxVec3(ps->input.mouse.p.x,ps->input.mouse.p.y,0);
+                f3 unit_dir_ = f3_create(0,0,-1);
+                PxVec3 unitDir = PxVec3(unit_dir_.x,unit_dir_.y,unit_dir_.z);
+                PxReal maxDistance = 5.0f;                // [in] Raycast max distance
+                PxRaycastBuffer hit;                      // [out] Raycast results
+                // Raycast against all static & dynamic objects (no filtering)
+                // The main result from this call is the closest hit, stored in the 'hit.block' structure
+                bool status = cs->raycast(origin, unitDir, maxDistance, hit);
+                if(status)
+                {
+                    for(int i = 0;i < komas.fixed.count;++i)
+                    {
+                        Koma* koma = fmj_stretch_buffer_check_out(Koma,&komas,i);
+                        //For each piece check inside sphere radius if start touch is in side piece radius
+//                        Koma* gp = &GamePieceCode::game_pieces[i];
+                        if( hit.block.actor == koma->rigid_body.state)
+                        {
+                            finger_pull.koma = koma;
+                            finger_pull.start_pull_p = ps->input.mouse.p;
+                            break;
+                        }
+                        //set gp
+                        fmj_stretch_buffer_check_in(&komas);
+                    }
+                }
+            }
+            //if no unit hovered ignore pull
+            //else show pull graphic over piece
+        }
+        else
+        {
+
+            if(finger_pull.pull_begin)
+            {
+                finger_pull.end_pull_p  = ps->input.mouse.p;
+                if(!CheckValidFingerPull(&finger_pull))
+                {
+                    finger_pull.pull_begin = false;
+                }
+                if(finger_pull.pull_begin && finger_pull.koma)
+                {
+                    //Pull was valid
+                    f2 pull_dif = f2_sub(finger_pull.end_pull_p,finger_pull.start_pull_p);
+                    f3 flick_dir = f3_create(pull_dif.x,pull_dif.y,0);
+                    flick_dir = f3_create(flick_dir.x,flick_dir.y,0);
+                    PxVec3 pulldirpx3 = PxVec3(flick_dir.x,flick_dir.y,flick_dir.z);
+                    finger_pull.koma->rigid_body.state->setLinearVelocity(pulldirpx3);
+                    finger_pull.koma = nullptr;
+                    finger_pull.start_pull_p = f2_create(0,0);
+                    finger_pull.end_pull_p = f2_create(0,0);
+                    finger_pull.pull_begin = false;
+                }
+            }
+        }
+        //Set friction on moving bodies
+
+
+#if 0
+        f4x4* p_mat = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,ortho_matrix_id);
+        size.x = abs(sin(size_sin)) * 300;
+        size.y = abs(cos(size_sin)) * 300;
+        
+        size.x = clamp(size.x,150,300);
+        size.y = clamp(size.x,150,300);
+        size.x = size.x * aspect_ratio;
+        fmj_stretch_buffer_check_in(&matrix_buffer);
+        size_sin += 0.001f;        
+        *p_mat = init_ortho_proj_matrix(size,0.0f,1.0f);
+#endif
         
         for(int i = 0;i < komas.fixed.count;++i)
         {
             Koma* k = fmj_stretch_buffer_check_out(Koma,&komas,i);
 
+
+            
+            PxVec3 lv = k->rigid_body.state->getLinearVelocity();
+            lv *= ground_friction;
+            k->rigid_body.state->setLinearVelocity(lv);
+            
             SpriteTrans* inner_koma_st = fmj_fixed_buffer_get_ptr(SpriteTrans,&fixed_quad_buffer,k->inner_id);
             SpriteTrans* outer_koma_st = fmj_fixed_buffer_get_ptr(SpriteTrans,&fixed_quad_buffer,k->outer_id);
             FMJ3DTrans  new_trans =  inner_koma_st->t;
 
-            f2  top_right_screen_xy = f2_create(ps->window.dim.x,ps->window.dim.y-50);
-            f2  bottom_left_xy = f2_create(0,0);
-            
-            f4x4 p_mat = fmj_stretch_buffer_get(f4x4,&matrix_buffer,ortho_matrix_id);
             f4x4 c_mat = fmj_stretch_buffer_get(f4x4,&matrix_buffer,rc_matrix_id);
-
-            f3 max_screen_p = f3_screen_to_world_point(p_mat,c_mat,ps->window.dim,top_right_screen_xy,0);
-            f3 lower_screen_p = f3_screen_to_world_point(p_mat,c_mat,ps->window.dim,bottom_left_xy,0);
-
+            
             f3 p = inner_koma_st->t.p;
-            f3 new_vel = k->velocity;
+//            f3 new_vel = k->velocity;
+            /*
             f3 v = k->velocity;
             {
                 if(p.x > max_screen_p.x)
@@ -1142,9 +1388,12 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                     new_vel = f3_reflect(v,f3_create(0,1,0));                    
                 }
             }
+            */
+            PxTransform pxt = k->rigid_body.state->getGlobalPose();
+            f3 new_p = f3_create(pxt.p.x,pxt.p.y,pxt.p.z);
             
-            k->velocity = f3_s_mul(0.05,f3_normalize(new_vel));
-            inner_koma_st->t.p = f3_add(inner_koma_st->t.p,k->velocity);
+//            k->velocity = f3_s_mul(0.05,f3_normalize(new_vel));
+            inner_koma_st->t.p = new_p;//f3_add(inner_koma_st->t.p,k->velocity);
             outer_koma_st->t.p = inner_koma_st->t.p;
             
             outer_koma_st->t.r = f3_axis_angle(f3_create(0,0,1),outer_angle_rot);
@@ -1170,6 +1419,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             }
         }
 
+        SoundCode::ContinousPlay(&bgm_soundclip);
 //Render camera stated etc..  is finalized        
  //Free cam
 #if 0
@@ -1275,7 +1525,6 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 //Command are finalized and rendering is started.        
  // TODO(Ray Garner): Add render targets commmand
 //        if(show_title)
-
  
 //        DrawTest test = {cube,rc,gpu_arena,test_desc_heap};
 //Post frame work is done.
@@ -1283,6 +1532,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 
         fmj_stretch_buffer_clear(&render_command_buffer);
 //Handle windows message and do it again.
+        PhysicsCode::Update(&scene,1,0.016f);                
+//        SoundCode::Update();
         HandleWindowsMessages(ps);        
     }
     return 0;
