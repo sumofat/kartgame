@@ -21,16 +21,15 @@ extern "C"{
 static SoundClip bgm_soundclip;
 PhysicsScene scene;
 PhysicsMaterial material;
-f32 ground_friction = 0.991f;
+f32 ground_friction = 0.998f;
 
 struct Koma
 {
     u64 inner_id;
     u64 outer_id;
 //    f3 velocity;
-    RigidBodyDynamic rigid_body;    
+    RigidBody rigid_body;    
 }typedef Koma;
-
 
 bool prev_lmb_state = false;
 struct FingerPull
@@ -106,7 +105,6 @@ class GamePiecePhysicsCallback : public PxSimulationEventCallback
         //PlatformOutput(true, "OnContact");
 	}
 };
-
 
 enum RenderCameraProjectionType
 {
@@ -1198,9 +1196,9 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             k.outer_id = outer_id;
         
             PhysicsShapeSphere sphere_shape = PhysicsCode::CreateSphere(scale/2,material);
-            RigidBodyDynamic rbd = PhysicsCode::CreateDynamicRigidbody(next_p, sphere_shape.shape, false);
+            RigidBody rbd = PhysicsCode::CreateDynamicRigidbody(next_p, sphere_shape.shape, false);
             PhysicsCode::AddActorToScene(scene, rbd);
-            PhysicsCode::DisableGravity(rbd.state,true);
+            PhysicsCode::DisableGravity((PxActor*)rbd.state,true);
             k.rigid_body = rbd;
             PhysicsCode::UpdateRigidBodyMassAndInertia(k.rigid_body,1);
             PhysicsCode::SetMass(k.rigid_body,1);
@@ -1224,6 +1222,39 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         }
     }    
 
+//create court bounds physics
+    for(int i = 0;i < 4;++i)
+    {
+        f32 scale = 19;
+        f3 box_size;
+        f3 next_p; 
+        //right left boxes
+        if(i % 2 == 0)
+        {
+            box_size = f3_create(1.0f,court_size_y + 1,scale);
+            if(i == 0)//left
+                next_p =  f3_create(-(court_size_x / 2.0f),0,0);
+            if(i == 2)//right
+                next_p =  f3_create((court_size_x / 2.0f),0,0);
+        }
+        else //top bottom
+        {
+            box_size = f3_create(court_size_x + 1.0f,1.0f,scale);
+            if(i == 1)//top
+                next_p =  f3_create(0,-(court_size_y / 2.0f),0);
+            if(i == 3)//bottom
+                next_p =  f3_create(0,(court_size_y / 2.0f),0);
+        }
+
+        PhysicsShapeBox box_shape = PhysicsCode::CreateBox(box_size,material);
+        RigidBody rbd = PhysicsCode::CreateStaticRigidbody(next_p, box_shape.shape);
+        PhysicsCode::AddActorToScene(scene, rbd);
+        PhysicsCode::DisableGravity((PxActor*)rbd.state,true);
+        //k.rigid_body = rbd;
+//        PhysicsCode::UpdateRigidBodyMassAndInertia(rbd,0);
+//        PhysicsCode::SetMass(rbd,0);
+    }
+    
     fmj_ui_evaluate_node(&base_node,&ui_state.hot_node_state);
     fmj_ui_commit_nodes_for_drawing(&sb_ui.arena,base_node,&ui_fixed_quad_buffer,white,uvs);
 
@@ -1271,6 +1302,19 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             ps->is_running = false;
         }
 
+#if 0
+        f4x4* p_mat = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,ortho_matrix_id);
+        size.x = abs(sin(size_sin)) * 300;
+        size.y = abs(cos(size_sin)) * 300;
+        
+        size.x = clamp(size.x,150,300);
+        size.y = clamp(size.x,150,300);
+        size.x = size.x * aspect_ratio;
+        fmj_stretch_buffer_check_in(&matrix_buffer);
+        size_sin += 0.001f;        
+        *p_mat = init_ortho_proj_matrix(size,0.0f,1.0f);
+#endif
+
         if(ps->input.mouse.lmb.down)
         {
             //Begin the pull
@@ -1279,7 +1323,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             {
                 //find the hovered unit
                 PxScene* cs = scene.state;
-                f3 origin_3 = f3_screen_to_world_point(rc.projection_matrix,rc.matrix,ps->window.dim,ps->input.mouse.p,0);                
+                f3 origin_3 = f3_screen_to_world_point(*p_mat,rc.matrix,ps->window.dim,ps->input.mouse.p,0);                
                 PxVec3 origin = PxVec3(origin_3.x,origin_3.y,origin_3.z);
                 //PxVec3 origin = PxVec3(ps->input.mouse.p.x,ps->input.mouse.p.y,0);
                 f3 unit_dir_ = f3_create(0,0,-1);
@@ -1327,7 +1371,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                     f3 flick_dir = f3_create(pull_dif.x,pull_dif.y,0);
                     flick_dir = f3_create(flick_dir.x,flick_dir.y,0);
                     PxVec3 pulldirpx3 = PxVec3(flick_dir.x,flick_dir.y,flick_dir.z);
-                    finger_pull.koma->rigid_body.state->setLinearVelocity(pulldirpx3);
+                    ((PxRigidDynamic*)finger_pull.koma->rigid_body.state)->setLinearVelocity(pulldirpx3);
                     finger_pull.koma = nullptr;
                     finger_pull.start_pull_p = f2_create(0,0);
                     finger_pull.end_pull_p = f2_create(0,0);
@@ -1337,19 +1381,6 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         }
         //Set friction on moving bodies
 
-
-#if 0
-        f4x4* p_mat = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,ortho_matrix_id);
-        size.x = abs(sin(size_sin)) * 300;
-        size.y = abs(cos(size_sin)) * 300;
-        
-        size.x = clamp(size.x,150,300);
-        size.y = clamp(size.x,150,300);
-        size.x = size.x * aspect_ratio;
-        fmj_stretch_buffer_check_in(&matrix_buffer);
-        size_sin += 0.001f;        
-        *p_mat = init_ortho_proj_matrix(size,0.0f,1.0f);
-#endif
         
         for(int i = 0;i < komas.fixed.count;++i)
         {
@@ -1357,9 +1388,9 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 
 
             
-            PxVec3 lv = k->rigid_body.state->getLinearVelocity();
+            PxVec3 lv = ((PxRigidDynamic*)k->rigid_body.state)->getLinearVelocity();
             lv *= ground_friction;
-            k->rigid_body.state->setLinearVelocity(lv);
+            ((PxRigidDynamic*)k->rigid_body.state)->setLinearVelocity(lv);
             
             SpriteTrans* inner_koma_st = fmj_fixed_buffer_get_ptr(SpriteTrans,&fixed_quad_buffer,k->inner_id);
             SpriteTrans* outer_koma_st = fmj_fixed_buffer_get_ptr(SpriteTrans,&fixed_quad_buffer,k->outer_id);
@@ -1389,7 +1420,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                 }
             }
             */
-            PxTransform pxt = k->rigid_body.state->getGlobalPose();
+            PxTransform pxt = ((PxRigidDynamic*)k->rigid_body.state)->getGlobalPose();
             f3 new_p = f3_create(pxt.p.x,pxt.p.y,pxt.p.z);
             
 //            k->velocity = f3_s_mul(0.05,f3_normalize(new_vel));

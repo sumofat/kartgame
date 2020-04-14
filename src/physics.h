@@ -25,12 +25,28 @@ struct PhysicsShapeSphere
     PxShape* shape;
 };
 
-struct RigidBodyDynamic
+struct PhysicsShapeBox
+{
+    f3 dim;
+    f3 extents;
+    PxBoxGeometry state;
+    PxShape* shape;
+};
+
+enum RigidBodyType
+{
+    rigidbody_type_none,    
+    rigidbody_type_dynamic,
+    rigidbody_type_kinematic,
+    rigidbody_type_static,    
+};
+
+struct RigidBody
 {
     f3 p;
-    PxRigidDynamic* state;
+    void* state;
     float mass;
-    bool is_kinematic;
+    RigidBodyType  type;
 };
 
 struct PhysicsScene
@@ -61,25 +77,25 @@ namespace PhysicsCode
 
     //Shape functions
     PhysicsShapeSphere CreateSphere(float radius,PhysicsMaterial material);
-
+    PhysicsShapeBox CreateBox(f3 dim,PhysicsMaterial material);
     //built in "shader" Callback/s
     PxFilterFlags DefaultFilterShader(
         PxFilterObjectAttributes attributes0, PxFilterData filterData0,
         PxFilterObjectAttributes attributes1, PxFilterData filterData1,
         PxPairFlags& pairFlags, const void* constantBlock, PxU32 constantBlockSize);    
 
-    RigidBodyDynamic CreateDynamicRigidbody(f3 p,PxShape* shape,bool is_kinematic);    
+    RigidBody CreateDynamicRigidbody(f3 p,PxShape* shape,bool is_kinematic);    
     PhysicsScene CreateScene(FilterShaderCallback callback);
     void SetSceneCallback(PhysicsScene* s,PxSimulationEventCallback* e);
     PhysicsMaterial CreateMaterial(float staticFriction/* 	the coefficient of static friction*/,
                                    float dynamicFriction/* 	the coefficient of dynamic friction*/,
                                    float restitution/* 	the coefficient of restitution */);
-    void AddActorToScene(PhysicsScene scene, RigidBodyDynamic rb);
+    void AddActorToScene(PhysicsScene scene, RigidBody rb);
     void SetFilterData(PhysicsFilterData filter_data,PxShape* shape);        
     void DisableGravity(PxActor* actor,bool enable);
     void SetFlagForActor(PxActor* actor,PxActorFlag flag,bool state);
-    void UpdateRigidBodyMassAndInertia(RigidBodyDynamic rbd,uint32_t density);
-    void SetMass(RigidBodyDynamic rbd,float mass);
+    void UpdateRigidBodyMassAndInertia(RigidBody rbd,uint32_t density);
+    void SetMass(RigidBody rbd,float mass);
     void SetRestitutionCombineMode(PhysicsMaterial mat,physx::PxCombineMode::Enum mode);    
     void SetFrictionCombineMode(PhysicsMaterial mat,physx::PxCombineMode::Enum mode);
 };

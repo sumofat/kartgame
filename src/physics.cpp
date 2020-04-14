@@ -83,25 +83,52 @@ static PxDefaultAllocator gDefaultAllocatorCallback;
         return result;
     }
 
-    RigidBodyDynamic CreateDynamicRigidbody(f3 p,PxShape* shape,bool is_kinematic)
+    PhysicsShapeBox CreateBox(f3 dim,PhysicsMaterial material)
     {
-        RigidBodyDynamic result;
+        PhysicsShapeBox result;
+        f3 d = f3_div_s(dim,2.0f);
+        PxBoxGeometry box(d.x,d.y,d.z);
+        result.state = box;
+        result.dim = dim;
+        result.extents = d;
+        ASSERT(box.isValid());
+        result.shape = physics->createShape(box, *material.state,true);
+        return result;
+    }
+
+    RigidBody CreateDynamicRigidbody(f3 p,PxShape* shape,bool is_kinematic)
+    {
+        RigidBody result;
         PxTransform pxt = PxTransform::PxTransform(p.x,p.y,p.z);
         PxRigidDynamic* actor = physics->createRigidDynamic(pxt);
         actor->attachShape(*shape);
         actor->setRigidBodyFlag(PxRigidBodyFlag::eKINEMATIC, is_kinematic);
         PxRigidBodyExt::updateMassAndInertia(*actor,1);
-        
+
         result.mass = actor->getMass();
-        result.is_kinematic = is_kinematic;
-        result.state = actor;
+        result.type = rigidbody_type_kinematic;
+        result.state = (void*)actor;
         result.p = p;
         return result;
     }
 
-    void SetMass(RigidBodyDynamic rbd,float mass)
+    RigidBody CreateStaticRigidbody(f3 p,PxShape* shape)
     {
-        rbd.state->setMass(mass);    
+        RigidBody result;
+        PxTransform pxt = PxTransform::PxTransform(p.x,p.y,p.z);
+        PxRigidStatic* actor = physics->createRigidStatic(pxt);
+        actor->attachShape(*shape);
+        result.state = (void*)actor;
+        result.p = p;
+        result.type = rigidbody_type_static;
+        return result;
+    }
+
+    void SetMass(RigidBody rbd,float mass)
+    {
+        ASSERT(rbd.state);
+        ASSERT(rbd.type == rigidbody_type_kinematic ||  rbd.type == rigidbody_type_dynamic);        
+        ((PxRigidDynamic*)rbd.state)->setMass(mass);    
     }
 
     void SetRestitutionCombineMode(PhysicsMaterial mat,physx::PxCombineMode::Enum mode)
@@ -114,9 +141,11 @@ static PxDefaultAllocator gDefaultAllocatorCallback;
         mat.state->setFrictionCombineMode(mode);
     }
     
-    void UpdateRigidBodyMassAndInertia(RigidBodyDynamic rbd,uint32_t density)
+    void UpdateRigidBodyMassAndInertia(RigidBody rbd,uint32_t density)
     {
-        PxRigidBodyExt::updateMassAndInertia(*rbd.state,1);
+        ASSERT(rbd.state);
+        ASSERT(rbd.type == rigidbody_type_kinematic ||  rbd.type == rigidbody_type_dynamic);
+        PxRigidBodyExt::updateMassAndInertia(*((PxRigidDynamic*)rbd.state),1);
     }
     
     PhysicsScene CreateScene(FilterShaderCallback callback)
@@ -163,11 +192,12 @@ static PxDefaultAllocator gDefaultAllocatorCallback;
         return result;
     }
 
-    void AddActorToScene(PhysicsScene scene, RigidBodyDynamic rb)
+    void AddActorToScene(PhysicsScene scene, RigidBody rb)
     {
         ASSERT(scene.state);
         ASSERT(rb.state);
-        scene.state->addActor(*rb.state);
+        PxActor* actor = (PxActor*)rb.state;
+        scene.state->addActor(*actor);
     }
 
     void SetFilterData(PhysicsFilterData filter_data,PxShape* shape)
