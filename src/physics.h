@@ -78,13 +78,16 @@ namespace PhysicsCode
     //Shape functions
     PhysicsShapeSphere CreateSphere(float radius,PhysicsMaterial material);
     PhysicsShapeBox CreateBox(f3 dim,PhysicsMaterial material);
+    void SetSimulationFilterData(PxShape* shape,u32 a,u32 b);
     //built in "shader" Callback/s
     PxFilterFlags DefaultFilterShader(
         PxFilterObjectAttributes attributes0, PxFilterData filterData0,
         PxFilterObjectAttributes attributes1, PxFilterData filterData1,
         PxPairFlags& pairFlags, const void* constantBlock, PxU32 constantBlockSize);    
 
-    RigidBody CreateDynamicRigidbody(f3 p,PxShape* shape,bool is_kinematic);    
+    RigidBody CreateDynamicRigidbody(f3 p,PxShape* shape,bool is_kinematic);
+    void SetRigidBodyUserData(RigidBody body,void* data);
+    
     PhysicsScene CreateScene(FilterShaderCallback callback);
     void SetSceneCallback(PhysicsScene* s,PxSimulationEventCallback* e);
     PhysicsMaterial CreateMaterial(float staticFriction/* 	the coefficient of static friction*/,
@@ -93,6 +96,7 @@ namespace PhysicsCode
     void AddActorToScene(PhysicsScene scene, RigidBody rb);
     void SetFilterData(PhysicsFilterData filter_data,PxShape* shape);        
     void DisableGravity(PxActor* actor,bool enable);
+    void SetFlagsForActor(PxActor* actor,PxActorFlag flags);
     void SetFlagForActor(PxActor* actor,PxActorFlag flag,bool state);
     void UpdateRigidBodyMassAndInertia(RigidBody rbd,uint32_t density);
     void SetMass(RigidBody rbd,float mass);

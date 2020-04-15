@@ -96,6 +96,20 @@ static PxDefaultAllocator gDefaultAllocatorCallback;
         return result;
     }
 
+    void SetSimulationFilterData(PxShape* shape,u32 a,u32 b)
+    {
+        PxFilterData filterData;
+        filterData.word0 = a; // word0 = own ID
+        filterData.word1 = b;  // word1 = ID mask to filter pairs that trigger a
+        shape->setSimulationFilterData(filterData);
+    }
+
+    void SetRigidBodyUserData(RigidBody body,void* data)
+    {
+        PxActor* a = (PxActor*)body.state;
+        a->userData = data;
+    }
+    
     RigidBody CreateDynamicRigidbody(f3 p,PxShape* shape,bool is_kinematic)
     {
         RigidBody result;
@@ -209,12 +223,11 @@ static PxDefaultAllocator gDefaultAllocatorCallback;
         shape->setSimulationFilterData(filterData);
     }
 
-/*
-    void SetFlagsForActor(PxActor* actor,PxActorFlag flags,bool state)
+
+    void SetFlagsForActor(PxActor* actor,PxActorFlag::Enum flags)
     {
-        actor->setActorFlags(flags, state);            
+        actor->setActorFlags(flags);            
     }
-*/
 
     void SetFlagForActor(PxActor* actor,PxActorFlag::Enum flag,bool state)
     {

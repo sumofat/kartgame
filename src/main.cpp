@@ -23,6 +23,15 @@ PhysicsScene scene;
 PhysicsMaterial material;
 f32 ground_friction = 0.998f;
 
+enum KomaType
+{
+    koma_type_none,
+    koma_type_pawn,
+    koma_type_rook,
+    koma_type_queen,
+    koma_type_king
+};
+
 struct Koma
 {
     u64 inner_id;
@@ -30,8 +39,42 @@ struct Koma
 //    f3 velocity;
     RigidBody rigid_body;
     u32 hp;
+    u32 max_hp;
+    u32 atk_pow;
+    KomaType type;
     u32 team_id;//index out of  10
+    u32  player_id;
 }typedef Koma;
+
+struct GameState
+{
+    Koma flicked_koma;
+    u32  current_player_id;
+    u32 is_phyics_active;
+};
+
+PxFilterFlags KomaFilterShader(
+    PxFilterObjectAttributes attributes0, PxFilterData filterData0,
+    PxFilterObjectAttributes attributes1, PxFilterData filterData1,
+    PxPairFlags& pairFlags, const void* constantBlock, PxU32 constantBlockSize)
+{
+    // let triggers through
+    if(PxFilterObjectIsTrigger(attributes0) || PxFilterObjectIsTrigger(attributes1))
+    {
+        pairFlags = PxPairFlag::eTRIGGER_DEFAULT;
+        return PxFilterFlag::eDEFAULT;
+    }
+    // generate contacts for all that were not filtered above
+    pairFlags = PxPairFlag::eCONTACT_DEFAULT;
+
+    // trigger the contact callback for pairs (A,B) where
+    // the filtermask of A contains the ID of B and vice versa.
+    if((filterData0.word0 & filterData1.word1) && (filterData1.word0 & filterData0.word1))
+    {
+        pairFlags |= PxPairFlag::eNOTIFY_TOUCH_FOUND;        
+    }
+    return PxFilterFlag::eDEFAULT;
+}
 
 bool prev_lmb_state = false;
 struct FingerPull
@@ -56,6 +99,8 @@ bool CheckValidFingerPull(FingerPull* fp)
     fp->pull_strength = 0;
     return false;
 }
+
+FMJStretchBuffer komas;
 
 class GamePiecePhysicsCallback : public PxSimulationEventCallback
 {
@@ -82,12 +127,35 @@ class GamePiecePhysicsCallback : public PxSimulationEventCallback
 
 	void onContact(const PxContactPairHeader& pairHeader, const PxContactPair* pairs, PxU32 nbPairs) override
 	{
-#if 0
 		for (PxU32 i = 0; i < nbPairs; i++)
 		{
 			const PxContactPair& cp = pairs[i];
-			if ((pairHeader.actors[0] == rigid_body) ||
-				(pairHeader.actors[1] == rigid_body))
+            u64 k_i = (u64)pairHeader.actors[0]->userData;
+            u64 k2_i = (u64)pairHeader.actors[1]->userData;            
+            Koma* k  = fmj_stretch_buffer_check_out(Koma,&komas,k_i);
+            Koma* k2 = fmj_stretch_buffer_check_out(Koma,&komas,k2_i);
+            if(k->player_id == k2->player_id)
+            {
+                //simulate physics for own team only
+                //and take damage
+            }
+            else
+            {
+                //take damage but no physics
+            }
+            u32 atk_pow = k2->atk_pow;
+            k->hp -= max(atk_pow,0);
+            int a  = 0;
+            fmj_stretch_buffer_check_in(&komas);
+            fmj_stretch_buffer_check_in(&komas);
+            if(k->hp <= 0)
+            {
+                PhysicsCode::SetFlagForActor(pairHeader.actors[0] ,PxActorFlag::Enum::eDISABLE_SIMULATION ,true);
+            }
+//            if(k2->hp ><)
+#if 0
+			if ((pairHeader.actors[0]) ||
+				(pairHeader.actors[1]))
 			{
 				if (cp.events & PxPairFlag::eNOTIFY_TOUCH_PERSISTS)
 				{
@@ -102,8 +170,10 @@ class GamePiecePhysicsCallback : public PxSimulationEventCallback
 					PlatformOutput(true, "Touch is Found\n");
 				}
 			}
-		}
 #endif
+		}
+
+        int a = 0;
         //PlatformOutput(true, "OnContact");
 	}
 };
@@ -494,13 +564,15 @@ nullptr, 0, 0, 0, 0,
 struct SpriteTrans
 {
     u64 id;
-    u64  sprite_id;
+//    u64 sprite_id;//not  using ref sprites in this  game common case is to use
+    //every sprite will be different
+    FMJSprite sprite;
     u64 material_id;
     u64 model_matrix_id;
     FMJ3DTrans t;
 }typedef SpriteTrans;
 
-u64 sprite_trans_create(f3 p,f3 s,quaternion r,f4 color,u64 sprite_id,FMJStretchBuffer* matrix_buffer,FMJFixedBuffer* buffer,FMJMemoryArena* sb_arena)
+u64 sprite_trans_create(f3 p,f3 s,quaternion r,f4 color,FMJSprite sprite,FMJStretchBuffer* matrix_buffer,FMJFixedBuffer* buffer,FMJMemoryArena* sb_arena)
 {
     f2 stbl = f2_create(0.0f,0.0f);
     f2 stbr = f2_create(1.0f,0.0f);
@@ -515,7 +587,7 @@ u64 sprite_trans_create(f3 p,f3 s,quaternion r,f4 color,u64 sprite_id,FMJStretch
     t.r = r;
     fmj_3dtrans_update(&t);
     result.t = t;
-    result.sprite_id = sprite_id;
+    result.sprite = sprite;
     result.model_matrix_id = fmj_stretch_buffer_push(matrix_buffer,&result.t.m);
     u64 id = fmj_fixed_buffer_push(buffer,(void*)&result);
     //NOTE(Ray):PRS is not used here  just the matrix that is passed above.
@@ -566,7 +638,7 @@ void fmj_ui_commit_nodes_for_drawing(FMJMemoryArena* arena,FMJUINode base_node,F
             if(child_node->type == fmj_ui_node_sprite)
             {
                 SpriteTrans st= {0};
-                st.sprite_id = child_node->sprite_id;
+                st.sprite = child_node->sprite;
                 fmj_fixed_buffer_push(quad_buffer,(void*)&st);
 //fmj_sprite_add_quad_notrans(&sb.arena,transform.p,transform.r,transform.s,white,uvs);                    
                 fmj_sprite_add_rect_with_dim(arena,child_node->rect.dim,0,child_node->rect.color,uvs);
@@ -580,7 +652,7 @@ void fmj_ui_commit_nodes_for_drawing(FMJMemoryArena* arena,FMJUINode base_node,F
     }
 }
 
-FMJStretchBuffer komas;
+
 
 LRESULT CALLBACK MainWindowCallbackFunc(HWND Window,
                    UINT Message,
@@ -662,9 +734,7 @@ void HandleWindowsMessages(PlatformState* ps)
 void SetSpriteNonVisible(void* node)
 {
     FMJUINode* a = (FMJUINode*)node;
-    FMJSprite* s = fmj_stretch_buffer_check_out(FMJSprite,&asset_tables.sprites,a->sprite_id); 
-    s->is_visible =false;
-    fmj_stretch_buffer_check_in(&asset_tables.sprites);
+    a->sprite.is_visible = false;
 }
 
 int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_line, int n_show_cmd )
@@ -893,10 +963,10 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     material = PhysicsCode::CreateMaterial(0.0f, 0.0f, 1.0f);
     PhysicsCode::SetRestitutionCombineMode(material,physx::PxCombineMode::eMIN);
     PhysicsCode::SetFrictionCombineMode(material,physx::PxCombineMode::eMIN);
-    scene = PhysicsCode::CreateScene(PhysicsCode::DefaultFilterShader);
+    scene = PhysicsCode::CreateScene(KomaFilterShader);
     GamePiecePhysicsCallback* e = new GamePiecePhysicsCallback();
     PhysicsCode::SetSceneCallback(&scene, e);
-    //GamePieceCode::SetPieces(scene, program, lt,life_lt, material, dim,true);
+    
     //END PHYSICS SETUP
  
      // Create the descriptor heap for the depth-stencil view.
@@ -1154,7 +1224,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     bkg_child.type = fmj_ui_node_sprite;
 
     ui_sprite.material_id = color_render_material.id;
-    bkg_child.sprite_id = fmj_stretch_buffer_push(&asset_tables.sprites,(void*)&ui_sprite);
+    bkg_child.sprite = ui_sprite;
     
     FMJUINode title_child = {0};
     title_child.use_anchor = true;
@@ -1168,7 +1238,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     title_child.type = fmj_ui_node_sprite;
     ui_sprite.tex_id = 3;
     ui_sprite.material_id = base_render_material.id;
-    title_child.sprite_id = fmj_stretch_buffer_push(&asset_tables.sprites,(void*)&ui_sprite);
+    title_child.sprite = ui_sprite;
     
     u64 ping_ui_id = fmj_stretch_buffer_push(&bkg_child.children,&title_child);
     u64 bkg_ui_id = fmj_stretch_buffer_push(&base_node.children,&bkg_child);    
@@ -1203,10 +1273,10 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     f32 court_size_y = 500;
     f32 court_size_x = line.dim.x;
     
-    u64  court_id = sprite_trans_create(f3_create_f(0),f3_create(line.dim.x,court_size_y,1),def_r,white,court_sprite_id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
+    u64  court_id = sprite_trans_create(f3_create_f(0),f3_create(line.dim.x,court_size_y,1),def_r,white,court_sprite,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
 //    u64  court_id = sprite_trans_create(f3_create_f(0),f3_create(100,100,1),def_r,white,court_sprite_id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);        
-    u64  circle_id = sprite_trans_create(f3_create_f(0),f3_create(court_size_x*0.8f,court_size_x*0.8f,1),def_r,white,circle_sprite_id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);    
-    u64  line_id = sprite_trans_create(f3_create_f(0),f3_create(line.dim.x,line.dim.y,1),def_r,white,line_sprite_id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
+    u64  circle_id = sprite_trans_create(f3_create_f(0),f3_create(court_size_x*0.8f,court_size_x*0.8f,1),def_r,white,circle_sprite,&matrix_buffer,&fixed_quad_buffer,&sb.arena);    
+    u64  line_id = sprite_trans_create(f3_create_f(0),f3_create(line.dim.x,line.dim.y,1),def_r,white,line_sprite,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
 
     f2  top_right_screen_xy = f2_create(ps->window.dim.x,ps->window.dim.y);
     f2  bottom_left_xy = f2_create(0,0);
@@ -1225,6 +1295,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     f3 koma_top_right = f3_create(-half_court_x + court_slot_x,half_court_y - court_slot_x,0);        
     f3 start_pos = f3_create_f(0);
     f3 current_pos = f3_create(0,0,-5);
+    u32 player_id = 0;
     for(int o = 0;o < 2;++o)
     {
         if(o == 0)
@@ -1233,6 +1304,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         }
         else
         {
+            player_id = 1;
             def_r = f3_axis_angle(f3_create(0,0,1),180);
             start_pos = koma_top_right;            
         }
@@ -1245,34 +1317,47 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             f3 next_p = current_pos;        
             Koma k = {0};
             
-            u64 inner_sprite_id;//base_koma_sprite_2.id;
-            u64 outer_sprite_id;//koma_sprite_outer_3.id;
-            k.team_id = i;            
+            FMJSprite inner_sprite;
+            FMJSprite outer_sprite;
+            k.team_id = i;
+            k.player_id = player_id;
             if(i > 4)
             {
-                inner_sprite_id = pawn_sprite.id;
-                outer_sprite_id = pawn_sprite_outer_2.id;
-                k.hp = 2;
+                inner_sprite = pawn_sprite;
+                outer_sprite = pawn_sprite_outer_2;
+                k.atk_pow = 1;
+                k.max_hp = 2;
+                k.hp = k.max_hp;
+                k.type = koma_type_pawn;
             }
             else if(i == 1 || i == 3)
             {
-                inner_sprite_id = queen_sprite.id;
-                outer_sprite_id = queen_sprite_outer_6.id;
+                inner_sprite = queen_sprite;
+                outer_sprite = queen_sprite_outer_6;
                 scale_mul = 1.3f;
-                k.hp = 6;
+                k.atk_pow = 1;
+                k.max_hp = 6;
+                k.hp = k.max_hp;
+                k.type = koma_type_queen;
             }
             else if(i == 2)
             {
-                inner_sprite_id = king_sprite.id;
-                outer_sprite_id = king_sprite_outer_5.id;
+                inner_sprite = king_sprite;
+                outer_sprite = king_sprite_outer_5;
                 scale_mul = 1.0f;
-                k.hp = 5;
+                k.atk_pow = 2;
+                k.max_hp = 5;
+                k.hp = k.max_hp;
+                k.type = koma_type_king;
             }
             else if(i == 0 || i == 4)
             {
-                inner_sprite_id = base_koma_sprite_2.id;
-                outer_sprite_id = koma_sprite_outer_3.id;
-                k.hp = 3;                
+                inner_sprite = base_koma_sprite_2;
+                outer_sprite = koma_sprite_outer_3;
+                k.atk_pow = 1;
+                k.max_hp = 3;
+                k.hp = k.max_hp;
+                k.type = koma_type_rook;
             }
             else
             {
@@ -1280,24 +1365,32 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             }
             
             f32 scale = base_scale * scale_mul;
-            u64  inner_id = sprite_trans_create(next_p,f3_create(scale,scale,1),def_r,white,inner_sprite_id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
+            u64  inner_id = sprite_trans_create(next_p,f3_create(scale,scale,1),def_r,white,inner_sprite,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
             k.inner_id = inner_id;
 
             base_scale += 8;
             scale = base_scale * scale_mul;
-            u64  outer_id = sprite_trans_create(next_p,f3_create(scale,scale,1),def_r,white,outer_sprite_id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
+            u64  outer_id = sprite_trans_create(next_p,f3_create(scale,scale,1),def_r,white,outer_sprite,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
             k.outer_id = outer_id;
-        
+
+//        filterData.word0 = k.type; // word0 = own ID
+//        filterData.word1 = 0xFF;  // word1 = ID mask to filter pairs that trigger a
             PhysicsShapeSphere sphere_shape = PhysicsCode::CreateSphere(scale/2,material);
+            PhysicsCode::SetSimulationFilterData(((PxShape*)sphere_shape.shape),k.type,0xFF);
+            
             RigidBody rbd = PhysicsCode::CreateDynamicRigidbody(next_p, sphere_shape.shape, false);
+
             PhysicsCode::AddActorToScene(scene, rbd);
             PhysicsCode::DisableGravity((PxActor*)rbd.state,true);
             k.rigid_body = rbd;
             PhysicsCode::UpdateRigidBodyMassAndInertia(k.rigid_body,1);
             PhysicsCode::SetMass(k.rigid_body,1);
 
-            fmj_stretch_buffer_push(&komas,(void*)&k);
-        
+            // contact callback;
+            u64 koma_index = fmj_stretch_buffer_push(&komas,(void*)&k);
+            u64* kpp = (u64*)koma_index;
+            PhysicsCode::SetRigidBodyUserData(rbd,kpp);            
+
             if(0 == (i + 1) % 5)
             {
                 if(o == 0)
@@ -1437,7 +1530,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                         Koma* koma = fmj_stretch_buffer_check_out(Koma,&komas,i);
                         //For each piece check inside sphere radius if start touch is in side piece radius
 //                        Koma* gp = &GamePieceCode::game_pieces[i];
-                        if( hit.block.actor == koma->rigid_body.state)
+                        if( hit.block.actor == koma->rigid_body.state && koma->hp > 0)
                         {
                             finger_pull.koma = koma;
                             finger_pull.start_pull_p = ps->input.mouse.p;
@@ -1484,7 +1577,9 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 
             PxVec3 lv = ((PxRigidDynamic*)k->rigid_body.state)->getLinearVelocity();
             lv *= ground_friction;
-            ((PxRigidDynamic*)k->rigid_body.state)->setLinearVelocity(lv);
+            if(k->hp > 0)
+                ((PxRigidDynamic*)k->rigid_body.state)->setLinearVelocity(lv);
+            
             u64 outer_sprite_id;
             u32 j = k->team_id;
             u32 t_id;
@@ -1534,27 +1629,25 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             fmj_3dtrans_update(&outer_koma_st->t);
             fmj_3dtrans_update(&inner_koma_st->t);
 
-            FMJSprite* is = fmj_stretch_buffer_check_out(FMJSprite,&asset_tables.sprites,inner_koma_st->sprite_id);            
-            FMJSprite* s = fmj_stretch_buffer_check_out(FMJSprite,&asset_tables.sprites,outer_koma_st->sprite_id);
+            FMJSprite is = inner_koma_st->sprite;//fmj_stretch_buffer_check_out(FMJSprite,&asset_tables.sprites,inner_koma_st->sprite_id);            
+            FMJSprite s = outer_koma_st->sprite;//fmj_stretch_buffer_check_out(FMJSprite,&asset_tables.sprites,outer_koma_st->sprite_id);
             if(k->hp <= 0)
             {
-                s->is_visible = false;
-                is->is_visible = false;
+                outer_koma_st->sprite.is_visible = false;
+                inner_koma_st->sprite.is_visible = false;
             }
-            s->tex_id = outer_sprite_id;
+            outer_koma_st->sprite.tex_id = outer_sprite_id;
             
             f4x4* outer_model_matrix = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,outer_koma_st->model_matrix_id);
             *outer_model_matrix = outer_koma_st->t.m;
             f4x4* inner_model_matrix = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,inner_koma_st->model_matrix_id);
             *inner_model_matrix = inner_koma_st->t.m;
+        }
 
-            if(ps->input.mouse.lmb.released)
-            {
-                show_title = false;
-                fmj_ui_evaluate_on_node_recursively(&base_node,SetSpriteNonVisible);
-                k->hp = max(0,k->hp - 1);
-            }
-
+        if(ps->input.mouse.lmb.released)
+        {
+            show_title = false;
+            fmj_ui_evaluate_on_node_recursively(&base_node,SetSpriteNonVisible);
         }
         
         SoundCode::ContinousPlay(&bgm_soundclip);
@@ -1576,7 +1669,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         {
             FMJRenderCommand com = {};
             SpriteTrans st = fmj_fixed_buffer_get(SpriteTrans,&fixed_quad_buffer,i);
-            FMJSprite s = fmj_stretch_buffer_get(FMJSprite,&asset_tables.sprites,st.sprite_id);
+            FMJSprite s = st.sprite;//fmj_stretch_buffer_get(FMJSprite,&asset_tables.sprites,st.sprite_id);
             if(s.is_visible)
             {
                 geo.offset = (i * 6);
