@@ -28,7 +28,9 @@ struct Koma
     u64 inner_id;
     u64 outer_id;
 //    f3 velocity;
-    RigidBody rigid_body;    
+    RigidBody rigid_body;
+    u32 hp;
+    u32 team_id;//index out of  10
 }typedef Koma;
 
 bool prev_lmb_state = false;
@@ -794,10 +796,29 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     LoadedTexture test_texture_2 = get_loaded_image("test2.png",4);    
     LoadedTexture koma_2 = get_loaded_image("koma_2.png",4);
     LoadedTexture ping_title = get_loaded_image("ping_title.png",4);
-    LoadedTexture koma_outer_3 = get_loaded_image("koma_outer_3.png",4);    
-    LoadedTexture koma_outer_2 = get_loaded_image("koma_outer_2.png",4);
-    LoadedTexture koma_outer_1 = get_loaded_image("koma_outer_1.png",4);
+    LoadedTexture koma_outer_1 = get_loaded_image("rook_outer_1.png",4);    
+    LoadedTexture koma_outer_2 = get_loaded_image("rook_outer_2.png",4);
+    LoadedTexture koma_outer_3 = get_loaded_image("rook_outer_3.png",4);
 
+    LoadedTexture koma_pawn_inner = get_loaded_image("pawn.png",4);
+    LoadedTexture koma_pawn_outer_1 = get_loaded_image("pawn_outer_1.png",4);
+    LoadedTexture koma_pawn_outer_2 = get_loaded_image("pawn_outer_2.png",4);
+
+    LoadedTexture koma_queen_inner = get_loaded_image("queen.png",4);
+    LoadedTexture koma_queen_outer_1 = get_loaded_image("queen_outer_1.png",4);
+    LoadedTexture koma_queen_outer_2 = get_loaded_image("queen_outer_2.png",4);
+    LoadedTexture koma_queen_outer_3 = get_loaded_image("queen_outer_3.png",4);
+    LoadedTexture koma_queen_outer_4 = get_loaded_image("queen_outer_4.png",4);
+    LoadedTexture koma_queen_outer_5 = get_loaded_image("queen_outer_5.png",4);
+    LoadedTexture koma_queen_outer_6 = get_loaded_image("queen_outer_6.png",4);
+
+    LoadedTexture koma_king_inner = get_loaded_image("king.png",4);
+    LoadedTexture koma_king_outer_1 = get_loaded_image("king_outer_1.png",4);
+    LoadedTexture koma_king_outer_2 = get_loaded_image("king_outer_2.png",4);
+    LoadedTexture koma_king_outer_3 = get_loaded_image("king_outer_3.png",4);
+    LoadedTexture koma_king_outer_4 = get_loaded_image("king_outer_4.png",4);
+    LoadedTexture koma_king_outer_5 = get_loaded_image("king_outer_5.png",4);
+    
     //court stuff
     LoadedTexture circle = get_loaded_image("circle.png",4);
     LoadedTexture line   = get_loaded_image("line.png",4);
@@ -805,14 +826,38 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     //upload texture data to gpu
     D12RendererCode::Texture2D(&test_texture,0);
     D12RendererCode::Texture2D(&test_texture_2,1);
+
     D12RendererCode::Texture2D(&koma_2,2);
     D12RendererCode::Texture2D(&ping_title,3);
+    f2 rook_tex_id_range = f2_create(4,7);    //4 is not here used by matrix buffer but we pretend it is.    
     D12RendererCode::Texture2D(&koma_outer_1,5);
     D12RendererCode::Texture2D(&koma_outer_2,6);
-    D12RendererCode::Texture2D(&koma_outer_3,7);        
+    D12RendererCode::Texture2D(&koma_outer_3,7);
 
     D12RendererCode::Texture2D(&circle,8);
     D12RendererCode::Texture2D(&line,9);        
+    u32 current_tex_id = 10;
+    f2 pawn_tex_id_range = f2_create(10,12);
+    D12RendererCode::Texture2D(&koma_pawn_inner,current_tex_id++);
+    D12RendererCode::Texture2D(&koma_pawn_outer_1,current_tex_id++);
+    D12RendererCode::Texture2D(&koma_pawn_outer_2,current_tex_id++);
+
+    f2 queen_tex_id_range = f2_create(13,19);
+    D12RendererCode::Texture2D(&koma_queen_inner,current_tex_id++);
+    D12RendererCode::Texture2D(&koma_queen_outer_1,current_tex_id++);
+    D12RendererCode::Texture2D(&koma_queen_outer_2,current_tex_id++);
+    D12RendererCode::Texture2D(&koma_queen_outer_3,current_tex_id++);
+    D12RendererCode::Texture2D(&koma_queen_outer_4,current_tex_id++);
+    D12RendererCode::Texture2D(&koma_queen_outer_5,current_tex_id++);    
+    D12RendererCode::Texture2D(&koma_queen_outer_6,current_tex_id++);
+
+    f2 king_tex_id_range = f2_create(20,25);
+    D12RendererCode::Texture2D(&koma_king_inner,current_tex_id++);
+    D12RendererCode::Texture2D(&koma_king_outer_1,current_tex_id++);
+    D12RendererCode::Texture2D(&koma_king_outer_2,current_tex_id++);
+    D12RendererCode::Texture2D(&koma_king_outer_3,current_tex_id++);
+    D12RendererCode::Texture2D(&koma_king_outer_4,current_tex_id++);    
+    D12RendererCode::Texture2D(&koma_king_outer_5,current_tex_id++);
     
     D12RendererCode::viewport = CD3DX12_VIEWPORT(0.0f, 0.0f,ps->window.dim.x, ps->window.dim.y);
     D12RendererCode::sis_rect = CD3DX12_RECT(0, 0, LONG_MAX, LONG_MAX);
@@ -1132,15 +1177,23 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     komas = fmj_stretch_buffer_init(1,sizeof(Koma),8);
     
     FMJSprite base_koma_sprite_2 = add_sprite_to_stretch_buffer(&asset_tables.sprites,base_render_material.id,2,uvs,white,true);
-    FMJSprite koma_sprite_outer_3 = add_sprite_to_stretch_buffer(&asset_tables.sprites,base_render_material.id,7,uvs,white,true);
+    FMJSprite koma_sprite_outer_3 = add_sprite_to_stretch_buffer(&asset_tables.sprites,base_render_material.id,rook_tex_id_range.y,uvs,white,true);
 
+    FMJSprite pawn_sprite = add_sprite_to_stretch_buffer(&asset_tables.sprites,base_render_material.id,pawn_tex_id_range.x,uvs,white,true);
+    FMJSprite pawn_sprite_outer_2 = add_sprite_to_stretch_buffer(&asset_tables.sprites,base_render_material.id,pawn_tex_id_range.y,uvs,white,true);
+
+    FMJSprite queen_sprite = add_sprite_to_stretch_buffer(&asset_tables.sprites,base_render_material.id,queen_tex_id_range.x,uvs,white,true);
+    FMJSprite queen_sprite_outer_6 = add_sprite_to_stretch_buffer(&asset_tables.sprites,base_render_material.id,queen_tex_id_range.y,uvs,white,true);
+
+    FMJSprite king_sprite = add_sprite_to_stretch_buffer(&asset_tables.sprites,base_render_material.id,king_tex_id_range.x,uvs,white,true);
+    FMJSprite king_sprite_outer_5 = add_sprite_to_stretch_buffer(&asset_tables.sprites,base_render_material.id,king_tex_id_range.y,uvs,white,true);
+    
     FMJSprite circle_sprite = fmj_sprite_init(8,uvs,white,true);
     FMJSprite line_sprite = fmj_sprite_init(9,uvs,white,true);
     FMJSprite court_sprite = fmj_sprite_init(0,uvs,white,true);        
     circle_sprite.material_id = base_render_material.id;
     line_sprite.material_id = base_render_material.id;
     court_sprite.material_id = color_render_material.id;
-    
 
     u64 circle_sprite_id = fmj_stretch_buffer_push(&asset_tables.sprites,(void*)&circle_sprite);
     u64 line_sprite_id   = fmj_stretch_buffer_push(&asset_tables.sprites,(void*)&line_sprite);
@@ -1152,7 +1205,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     
     u64  court_id = sprite_trans_create(f3_create_f(0),f3_create(line.dim.x,court_size_y,1),def_r,white,court_sprite_id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
 //    u64  court_id = sprite_trans_create(f3_create_f(0),f3_create(100,100,1),def_r,white,court_sprite_id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);        
-    u64  circle_id = sprite_trans_create(f3_create_f(0),f3_create(30,30,1),def_r,white,circle_sprite_id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);    
+    u64  circle_id = sprite_trans_create(f3_create_f(0),f3_create(court_size_x*0.8f,court_size_x*0.8f,1),def_r,white,circle_sprite_id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);    
     u64  line_id = sprite_trans_create(f3_create_f(0),f3_create(line.dim.x,line.dim.y,1),def_r,white,line_sprite_id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
 
     f2  top_right_screen_xy = f2_create(ps->window.dim.x,ps->window.dim.y);
@@ -1175,24 +1228,64 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     for(int o = 0;o < 2;++o)
     {
         if(o == 0)
-            start_pos = koma_bottom_left;
+        {
+            start_pos = koma_bottom_left;            
+        }
         else
-            start_pos = koma_top_right;
+        {
+            def_r = f3_axis_angle(f3_create(0,0,1),180);
+            start_pos = koma_top_right;            
+        }
 
         f3 current_pos = start_pos;
         for(int i = 0;i < 10;++i)
         {
-            f32 scale = 14;
+            f32 base_scale = 38;
+            f32 scale_mul = 1.0f;
             f3 next_p = current_pos;        
             Koma k = {0};
-
-            u64  inner_id = sprite_trans_create(next_p,f3_create(scale,scale,1),def_r,white,base_koma_sprite_2.id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
-//        k.velocity = f3_s_mul(0.05,f3_normalize(f3_create(f32_random_range(0,1),f32_random_range(0,1),0)));        
+            
+            u64 inner_sprite_id;//base_koma_sprite_2.id;
+            u64 outer_sprite_id;//koma_sprite_outer_3.id;
+            k.team_id = i;            
+            if(i > 4)
+            {
+                inner_sprite_id = pawn_sprite.id;
+                outer_sprite_id = pawn_sprite_outer_2.id;
+                k.hp = 2;
+            }
+            else if(i == 1 || i == 3)
+            {
+                inner_sprite_id = queen_sprite.id;
+                outer_sprite_id = queen_sprite_outer_6.id;
+                scale_mul = 1.3f;
+                k.hp = 6;
+            }
+            else if(i == 2)
+            {
+                inner_sprite_id = king_sprite.id;
+                outer_sprite_id = king_sprite_outer_5.id;
+                scale_mul = 1.0f;
+                k.hp = 5;
+            }
+            else if(i == 0 || i == 4)
+            {
+                inner_sprite_id = base_koma_sprite_2.id;
+                outer_sprite_id = koma_sprite_outer_3.id;
+                k.hp = 3;                
+            }
+            else
+            {
+                ASSERT(false);
+            }
+            
+            f32 scale = base_scale * scale_mul;
+            u64  inner_id = sprite_trans_create(next_p,f3_create(scale,scale,1),def_r,white,inner_sprite_id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
             k.inner_id = inner_id;
-        
-            scale = 18;
 
-            u64  outer_id = sprite_trans_create(next_p,f3_create(scale,scale,1),def_r,white,koma_sprite_outer_3.id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
+            base_scale += 8;
+            scale = base_scale * scale_mul;
+            u64  outer_id = sprite_trans_create(next_p,f3_create(scale,scale,1),def_r,white,outer_sprite_id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
             k.outer_id = outer_id;
         
             PhysicsShapeSphere sphere_shape = PhysicsCode::CreateSphere(scale/2,material);
@@ -1204,7 +1297,6 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             PhysicsCode::SetMass(k.rigid_body,1);
 
             fmj_stretch_buffer_push(&komas,(void*)&k);
-            scale = scale * 2;
         
             if(0 == (i + 1) % 5)
             {
@@ -1302,8 +1394,9 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             ps->is_running = false;
         }
 
+        f4x4* p_mat_ = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,ortho_matrix_id);
 #if 0
-        f4x4* p_mat = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,ortho_matrix_id);
+
         size.x = abs(sin(size_sin)) * 300;
         size.y = abs(cos(size_sin)) * 300;
         
@@ -1312,9 +1405,13 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         size.x = size.x * aspect_ratio;
         fmj_stretch_buffer_check_in(&matrix_buffer);
         size_sin += 0.001f;        
-        *p_mat = init_ortho_proj_matrix(size,0.0f,1.0f);
-#endif
+        *p_mat_ = init_ortho_proj_matrix(size,0.0f,1.0f);
 
+#endif
+        f4x4 p_mat = *p_mat_;
+        p_mat_ = nullptr;
+        fmj_stretch_buffer_check_in(&matrix_buffer);
+        
         if(ps->input.mouse.lmb.down)
         {
             //Begin the pull
@@ -1323,7 +1420,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             {
                 //find the hovered unit
                 PxScene* cs = scene.state;
-                f3 origin_3 = f3_screen_to_world_point(*p_mat,rc.matrix,ps->window.dim,ps->input.mouse.p,0);                
+                f3 origin_3 = f3_screen_to_world_point(p_mat,rc.matrix,ps->window.dim,ps->input.mouse.p,0);                
                 PxVec3 origin = PxVec3(origin_3.x,origin_3.y,origin_3.z);
                 //PxVec3 origin = PxVec3(ps->input.mouse.p.x,ps->input.mouse.p.y,0);
                 f3 unit_dir_ = f3_create(0,0,-1);
@@ -1379,19 +1476,45 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                 }
             }
         }
-        //Set friction on moving bodies
 
-        
+        //Set friction on moving bodies
         for(int i = 0;i < komas.fixed.count;++i)
         {
             Koma* k = fmj_stretch_buffer_check_out(Koma,&komas,i);
 
-
-            
             PxVec3 lv = ((PxRigidDynamic*)k->rigid_body.state)->getLinearVelocity();
             lv *= ground_friction;
             ((PxRigidDynamic*)k->rigid_body.state)->setLinearVelocity(lv);
+            u64 outer_sprite_id;
+            u32 j = k->team_id;
+            u32 t_id;
+            if(j > 4)
+            {
+                u32 start = k->hp + pawn_tex_id_range.x;
+                t_id = clamp(start,pawn_tex_id_range.x + 1,pawn_tex_id_range.y);
+            }
+            else if(j == 1 || j == 3)
+            {
+                u32 start = k->hp + queen_tex_id_range.x;
+                t_id = clamp(start,queen_tex_id_range.x + 1,queen_tex_id_range.y);
+            }
+            else if(j == 2)
+            {
+                u32 start = k->hp + king_tex_id_range.x;
+                t_id = clamp(start,king_tex_id_range.x + 1,king_tex_id_range.y);
+            }
+            else if(j == 0 || j == 4)
+            {
+                u32 start = k->hp + rook_tex_id_range.x;
+                t_id = clamp(start,rook_tex_id_range.x + 1,rook_tex_id_range.y);
+            }
+            else
+            {
+                ASSERT(false);
+            }
             
+            outer_sprite_id = t_id;            
+
             SpriteTrans* inner_koma_st = fmj_fixed_buffer_get_ptr(SpriteTrans,&fixed_quad_buffer,k->inner_id);
             SpriteTrans* outer_koma_st = fmj_fixed_buffer_get_ptr(SpriteTrans,&fixed_quad_buffer,k->outer_id);
             FMJ3DTrans  new_trans =  inner_koma_st->t;
@@ -1399,57 +1522,41 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             f4x4 c_mat = fmj_stretch_buffer_get(f4x4,&matrix_buffer,rc_matrix_id);
             
             f3 p = inner_koma_st->t.p;
-//            f3 new_vel = k->velocity;
-            /*
-            f3 v = k->velocity;
-            {
-                if(p.x > max_screen_p.x)
-                {
-                    new_vel = f3_reflect(v,f3_create(-1,0,0));
-                }
-                else if(p.y > max_screen_p.y)
-                {
-                    new_vel = f3_reflect(v,f3_create(0,-1,0));
-                }else if(p.x < lower_screen_p.x)
-                {
-                    new_vel = f3_reflect(v,f3_create(1,0,0));
-                }
-                else if(p.y < lower_screen_p.y)
-                {
-                    new_vel = f3_reflect(v,f3_create(0,1,0));                    
-                }
-            }
-            */
+
             PxTransform pxt = ((PxRigidDynamic*)k->rigid_body.state)->getGlobalPose();
             f3 new_p = f3_create(pxt.p.x,pxt.p.y,pxt.p.z);
-            
-//            k->velocity = f3_s_mul(0.05,f3_normalize(new_vel));
-            inner_koma_st->t.p = new_p;//f3_add(inner_koma_st->t.p,k->velocity);
+
+            inner_koma_st->t.p = new_p;
             outer_koma_st->t.p = inner_koma_st->t.p;
             
             outer_koma_st->t.r = f3_axis_angle(f3_create(0,0,1),outer_angle_rot);
             outer_angle_rot += 0.01f;
             fmj_3dtrans_update(&outer_koma_st->t);
             fmj_3dtrans_update(&inner_koma_st->t);
-            
+
+            FMJSprite* is = fmj_stretch_buffer_check_out(FMJSprite,&asset_tables.sprites,inner_koma_st->sprite_id);            
             FMJSprite* s = fmj_stretch_buffer_check_out(FMJSprite,&asset_tables.sprites,outer_koma_st->sprite_id);
-            u32 id = s->tex_id;
+            if(k->hp <= 0)
+            {
+                s->is_visible = false;
+                is->is_visible = false;
+            }
+            s->tex_id = outer_sprite_id;
+            
             f4x4* outer_model_matrix = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,outer_koma_st->model_matrix_id);
             *outer_model_matrix = outer_koma_st->t.m;
             f4x4* inner_model_matrix = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,inner_koma_st->model_matrix_id);
             *inner_model_matrix = inner_koma_st->t.m;
-            
-            if(ps->input.mouse.lmb.pressed)
+
+            if(ps->input.mouse.lmb.released)
             {
                 show_title = false;
                 fmj_ui_evaluate_on_node_recursively(&base_node,SetSpriteNonVisible);
-
-                id =  (id - 1);
-                if(id < 5)id = 7;
-                s->tex_id = id;
+                k->hp = max(0,k->hp - 1);
             }
-        }
 
+        }
+        
         SoundCode::ContinousPlay(&bgm_soundclip);
 //Render camera stated etc..  is finalized        
  //Free cam
