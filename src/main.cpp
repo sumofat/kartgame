@@ -1675,7 +1675,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         {
             Koma* k = fmj_stretch_buffer_check_out(Koma,&komas,i);
             
-            if(game_state.current_player_id == (k->player_id + 1) % 2)
+            if(k->action_type != koma_action_type_attack)
             {
                 PhysicsCode::LockRigidPosition(k->rigid_body);                
             }
