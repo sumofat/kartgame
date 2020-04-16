@@ -96,6 +96,15 @@ namespace PhysicsCode
     void AddActorToScene(PhysicsScene scene, RigidBody rb);
     void SetFilterData(PhysicsFilterData filter_data,PxShape* shape);        
     void DisableGravity(PxActor* actor,bool enable);
+
+    void UnlockRigidAll(RigidBody rbd);
+    void UnlockRigidPosition(RigidBody rbd);
+    void UnlockRigidRotation(RigidBody rbd);        
+    void LockRigidPosition(RigidBody rbd);
+    void LockRigidRotation(RigidBody rbd);
+    
+    void SetRigidDynamicLockFlags(RigidBody rbd,physx::PxRigidDynamicLockFlags flags);
+    void SetRigidDynamicLockFlag(RigidBody rbd,physx::PxRigidDynamicLockFlag flag,bool value);    
     void SetFlagsForActor(PxActor* actor,PxActorFlag flags);
     void SetFlagForActor(PxActor* actor,PxActorFlag flag,bool state);
     void UpdateRigidBodyMassAndInertia(RigidBody rbd,uint32_t density);

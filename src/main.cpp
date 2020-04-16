@@ -20,9 +20,10 @@ extern "C"{
 
 static SoundClip bgm_soundclip;
 PhysicsScene scene;
-PhysicsMaterial material;
-f32 ground_friction = 0.998f;
-
+PhysicsMaterial physics_material;
+//f32 ground_friction = 0.998f;
+f32 ground_friction = 0.0032f;
+FMJFixedBuffer ui_fixed_quad_buffer;
 enum KomaType
 {
     koma_type_none,
@@ -32,26 +33,38 @@ enum KomaType
     koma_type_king
 };
 
+enum KomaActionType
+{
+    koma_action_type_none,
+    koma_action_type_attack,
+    koma_action_type_defense
+};
+
 struct Koma
 {
     u64 inner_id;
     u64 outer_id;
 //    f3 velocity;
     RigidBody rigid_body;
-    u32 hp;
+    int hp;
     u32 max_hp;
     u32 atk_pow;
     KomaType type;
+    KomaActionType action_type;
+    f32 max_speed;
+    f32 friction;
     u32 team_id;//index out of  10
     u32  player_id;
 }typedef Koma;
 
 struct GameState
 {
-    Koma flicked_koma;
+    Koma* flicked_koma;
     u32  current_player_id;
     u32 is_phyics_active;
 };
+
+GameState game_state;
 
 PxFilterFlags KomaFilterShader(
     PxFilterObjectAttributes attributes0, PxFilterData filterData0,
@@ -84,6 +97,7 @@ struct FingerPull
     float pull_strength;
     bool pull_begin = false;
     Koma* koma;
+//    u64 koma_id
 };
 
 static FingerPull finger_pull = {};
@@ -130,51 +144,48 @@ class GamePiecePhysicsCallback : public PxSimulationEventCallback
 		for (PxU32 i = 0; i < nbPairs; i++)
 		{
 			const PxContactPair& cp = pairs[i];
-            u64 k_i = (u64)pairHeader.actors[0]->userData;
-            u64 k2_i = (u64)pairHeader.actors[1]->userData;            
-            Koma* k  = fmj_stretch_buffer_check_out(Koma,&komas,k_i);
-            Koma* k2 = fmj_stretch_buffer_check_out(Koma,&komas,k2_i);
-            if(k->player_id == k2->player_id)
             {
-                //simulate physics for own team only
-                //and take damage
-            }
-            else
-            {
-                //take damage but no physics
-            }
-            u32 atk_pow = k2->atk_pow;
-            k->hp -= max(atk_pow,0);
-            int a  = 0;
-            fmj_stretch_buffer_check_in(&komas);
-            fmj_stretch_buffer_check_in(&komas);
-            if(k->hp <= 0)
-            {
-                PhysicsCode::SetFlagForActor(pairHeader.actors[0] ,PxActorFlag::Enum::eDISABLE_SIMULATION ,true);
-            }
-//            if(k2->hp ><)
-#if 0
-			if ((pairHeader.actors[0]) ||
-				(pairHeader.actors[1]))
-			{
-				if (cp.events & PxPairFlag::eNOTIFY_TOUCH_PERSISTS)
-				{
-					PlatformOutput(true, "Touch is persisting\n");
-				}
-				if (cp.events & PxPairFlag::eNOTIFY_TOUCH_LOST)
-				{
-					PlatformOutput(true, "Touch is Lost\n");
-				}
-				if (cp.events & PxPairFlag::eNOTIFY_TOUCH_FOUND)
-				{
-					PlatformOutput(true, "Touch is Found\n");
-				}
-			}
-#endif
-		}
+                u64 k_i = (u64)pairHeader.actors[0]->userData;
+                Koma* k  = fmj_stretch_buffer_check_out(Koma,&komas,k_i);
 
-        int a = 0;
-        //PlatformOutput(true, "OnContact");
+                u64 k2_i = (u64)pairHeader.actors[1]->userData;                                            
+                Koma* k2 = fmj_stretch_buffer_check_out(Koma,&komas,k2_i);
+/*
+                if(k->player_id == k2->player_id)
+                {
+                    //simulate physics for own team only
+                    //and take damage
+                    if(k->action_type == koma_action_type_defense)
+                    {
+                        u32 atk_pow = k->atk_pow;
+                        k2->hp -= max(atk_pow,0);                                        
+                    }
+                    else if(k2->action_type == koma_action_type_defense)
+                    {
+                        u32 atk_pow = k2->atk_pow;                        
+                        k->hp -= max(atk_pow,0);                                        
+                    }
+                }
+                //               else
+                */
+                {
+                    //take damage but no physics
+                    if(k->action_type == koma_action_type_attack)
+                    {
+                        u32 atk_pow = k->atk_pow;
+                        k2->hp -= max(atk_pow,0);                                        
+                    }
+                    else if(k2->action_type == koma_action_type_attack)
+                    {
+                        u32 atk_pow = k2->atk_pow;                        
+                        k->hp -= max(atk_pow,0);                                        
+                    }
+                }
+
+                fmj_stretch_buffer_check_in(&komas);
+                fmj_stretch_buffer_check_in(&komas);
+            }
+		}
 	}
 };
 
@@ -285,7 +296,7 @@ struct GamePad
     
     Stick left_stick;
     Stick right_stick;
-    
+ 
     Axis left_shoulder;
     Axis right_shoulder;
 
@@ -293,7 +304,7 @@ struct GamePad
     DigitalButton down;
     DigitalButton left;
     DigitalButton right;
-
+ 
     DigitalButton a;
     DigitalButton b;
     DigitalButton x;
@@ -374,6 +385,69 @@ f2 GetWin32WindowDim(PlatformState* ps)
     RECT client_rect;
     GetClientRect(ps->window.handle, &client_rect);
 	return f2_create(client_rect.right - client_rect.left, client_rect.bottom - client_rect.top);
+}
+void PullTimeState(PlatformState* ps)
+{
+#if WINDOWS
+    LARGE_INTEGER li;
+#endif
+
+    if(ps->time.frame_index == 0)
+   {
+
+#if OSX || IOS
+       ps->time.initial_ticks =  mach_absolute_time();
+       ps->time.prev_ticks = ps->time.initial_ticks;
+#elif WINDOWS
+       QueryPerformanceCounter(&li);
+       ps->time.initial_ticks =  li.QuadPart;
+       ps->time.prev_ticks = ps->time.initial_ticks;
+#endif
+   }
+
+#if WINDOWS
+    QueryPerformanceCounter(&li);
+    u64 current_ticks = li.QuadPart;
+#elif OSX || IOS
+    u64 current_ticks = mach_absolute_time();
+#endif
+    
+    ps->time.delta_ticks = current_ticks - ps->time.prev_ticks;//ps->time.time_ticks;
+    ps->time.time_ticks = current_ticks - ps->time.initial_ticks;
+    ps->time.prev_ticks = current_ticks;    
+
+#if OSX || IOS
+    if(ps->time.ticks_per_second == 1000)
+    {
+        ps->time.delta_nanoseconds = (ps->time.delta_ticks);
+    }
+    else
+    {
+        //NOTE(RAY):Untested!!!
+        ps->time.delta_nanoseconds = (ps->time.delta_ticks) * ps->time.ticks_per_second;
+        ps->time.delta_nanoseconds = ps->time.delta_nanoseconds;
+    }
+#elif WINDOWS
+    ps->time.delta_nanoseconds = (1000 * 1000 * 1000 * ps->time.delta_ticks) / ps->time.ticks_per_second;
+#endif
+    
+    ps->time.delta_microseconds = ps->time.delta_nanoseconds / 1000;
+    ps->time.delta_miliseconds = ps->time.delta_microseconds / 1000;
+#if WINDOWS
+    ps->time.delta_seconds = ((f32)ps->time.delta_ticks / (f32)ps->time.ticks_per_second);
+#elif OSX
+    ps->time.delta_seconds = ((f32)ps->time.delta_miliseconds / (f32)1000);
+#endif
+
+#if OSX || IOS
+        ps->time.time_nanoseconds = (ps->time.time_ticks) * ps->time.ticks_per_second * 10;
+#elif WINDOWS
+        ps->time.time_nanoseconds = (1000 * 1000 * 1000 * ps->time.time_ticks) / ps->time.ticks_per_second;
+#endif
+    ps->time.time_microseconds = ps->time.time_nanoseconds / 1000;
+    ps->time.time_miliseconds = ps->time.time_microseconds / 1000;
+    ps->time.time_seconds = (f64)ps->time.time_ticks / (f64)ps->time.ticks_per_second;
+    ps->time.frame_index++;
 }
 
 void UpdateDigitalButton(DigitalButton* button,u32 state)
@@ -639,7 +713,7 @@ void fmj_ui_commit_nodes_for_drawing(FMJMemoryArena* arena,FMJUINode base_node,F
             {
                 SpriteTrans st= {0};
                 st.sprite = child_node->sprite;
-                fmj_fixed_buffer_push(quad_buffer,(void*)&st);
+                child_node->st_id = fmj_fixed_buffer_push(quad_buffer,(void*)&st);
 //fmj_sprite_add_quad_notrans(&sb.arena,transform.p,transform.r,transform.s,white,uvs);                    
                 fmj_sprite_add_rect_with_dim(arena,child_node->rect.dim,0,child_node->rect.color,uvs);
             }
@@ -734,7 +808,8 @@ void HandleWindowsMessages(PlatformState* ps)
 void SetSpriteNonVisible(void* node)
 {
     FMJUINode* a = (FMJUINode*)node;
-    a->sprite.is_visible = false;
+    SpriteTrans* st = fmj_fixed_buffer_get_ptr(SpriteTrans,&ui_fixed_quad_buffer,a->st_id);    
+    st->sprite.is_visible = false;
 }
 
 int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_line, int n_show_cmd )
@@ -960,9 +1035,9 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     //end audio setup
 
     //BEGIN Setup physics stuff
-    material = PhysicsCode::CreateMaterial(0.0f, 0.0f, 1.0f);
-    PhysicsCode::SetRestitutionCombineMode(material,physx::PxCombineMode::eMIN);
-    PhysicsCode::SetFrictionCombineMode(material,physx::PxCombineMode::eMIN);
+    physics_material = PhysicsCode::CreateMaterial(0.1f, 0.1f, 1.0f);
+    PhysicsCode::SetRestitutionCombineMode(physics_material,physx::PxCombineMode::eMULTIPLY);
+    PhysicsCode::SetFrictionCombineMode(physics_material,physx::PxCombineMode::eMIN);
     scene = PhysicsCode::CreateScene(KomaFilterShader);
     GamePiecePhysicsCallback* e = new GamePiecePhysicsCallback();
     PhysicsCode::SetSceneCallback(&scene, e);
@@ -1186,7 +1261,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     GPUArena matrix_gpu_arena = D12RendererCode::AllocateGPUArena(matrix_mem_size);
 
     FMJFixedBuffer fixed_quad_buffer = fmj_fixed_buffer_init(200,sizeof(SpriteTrans),8);
-    FMJFixedBuffer ui_fixed_quad_buffer = fmj_fixed_buffer_init(200,sizeof(SpriteTrans),8);    
+    ui_fixed_quad_buffer = fmj_fixed_buffer_init(200,sizeof(SpriteTrans),8);    
     FMJFixedBuffer matrix_quad_buffer = fmj_fixed_buffer_init(200,sizeof(f4x4),0);
     
     FMJSpriteBatch sb = {0};
@@ -1321,7 +1396,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             FMJSprite outer_sprite;
             k.team_id = i;
             k.player_id = player_id;
-            if(i > 4)
+            if(i > 4)//pawns
             {
                 inner_sprite = pawn_sprite;
                 outer_sprite = pawn_sprite_outer_2;
@@ -1330,7 +1405,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                 k.hp = k.max_hp;
                 k.type = koma_type_pawn;
             }
-            else if(i == 1 || i == 3)
+            else if(i == 1 || i == 3)//queen
             {
                 inner_sprite = queen_sprite;
                 outer_sprite = queen_sprite_outer_6;
@@ -1340,21 +1415,21 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                 k.hp = k.max_hp;
                 k.type = koma_type_queen;
             }
-            else if(i == 2)
+            else if(i == 2)//king
             {
                 inner_sprite = king_sprite;
                 outer_sprite = king_sprite_outer_5;
                 scale_mul = 1.0f;
-                k.atk_pow = 2;
+                k.atk_pow = 1;
                 k.max_hp = 5;
                 k.hp = k.max_hp;
                 k.type = koma_type_king;
             }
-            else if(i == 0 || i == 4)
+            else if(i == 0 || i == 4)//rooks
             {
                 inner_sprite = base_koma_sprite_2;
                 outer_sprite = koma_sprite_outer_3;
-                k.atk_pow = 1;
+                k.atk_pow = 2;
                 k.max_hp = 3;
                 k.hp = k.max_hp;
                 k.type = koma_type_rook;
@@ -1375,7 +1450,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 
 //        filterData.word0 = k.type; // word0 = own ID
 //        filterData.word1 = 0xFF;  // word1 = ID mask to filter pairs that trigger a
-            PhysicsShapeSphere sphere_shape = PhysicsCode::CreateSphere(scale/2,material);
+            PhysicsShapeSphere sphere_shape = PhysicsCode::CreateSphere(scale/2,physics_material);
             PhysicsCode::SetSimulationFilterData(((PxShape*)sphere_shape.shape),k.type,0xFF);
             
             RigidBody rbd = PhysicsCode::CreateDynamicRigidbody(next_p, sphere_shape.shape, false);
@@ -1390,6 +1465,9 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             u64 koma_index = fmj_stretch_buffer_push(&komas,(void*)&k);
             u64* kpp = (u64*)koma_index;
             PhysicsCode::SetRigidBodyUserData(rbd,kpp);            
+
+            PhysicsCode::SetRigidDynamicLockFlag(rbd,PxRigidDynamicLockFlag::eLOCK_LINEAR_Z,true);
+//            PhysicsCode::LockRigidRotation(rbd);
 
             if(0 == (i + 1) % 5)
             {
@@ -1431,13 +1509,10 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                 next_p =  f3_create(0,(court_size_y / 2.0f),0);
         }
 
-        PhysicsShapeBox box_shape = PhysicsCode::CreateBox(box_size,material);
+        PhysicsShapeBox box_shape = PhysicsCode::CreateBox(box_size,physics_material);
         RigidBody rbd = PhysicsCode::CreateStaticRigidbody(next_p, box_shape.shape);
         PhysicsCode::AddActorToScene(scene, rbd);
         PhysicsCode::DisableGravity((PxActor*)rbd.state,true);
-        //k.rigid_body = rbd;
-//        PhysicsCode::UpdateRigidBodyMassAndInertia(rbd,0);
-//        PhysicsCode::SetMass(rbd,0);
     }
     
     fmj_ui_evaluate_node(&base_node,&ui_state.hot_node_state);
@@ -1474,13 +1549,15 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     f32 outer_angle_rot = 0;    
     u32 tex_id;
     f32 size_sin = 0;
+    game_state.current_player_id = 0;
+    
     while(ps->is_running)
     {
 //Get input
         PullDigitalButtons(ps);
         PullMouseState(ps);
         PullGamePads(ps);
-
+        PullTimeState(ps);
 //Game stuff happens 
         if(ps->input.keyboard.keys[keys.s].down)
         {
@@ -1505,7 +1582,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         p_mat_ = nullptr;
         fmj_stretch_buffer_check_in(&matrix_buffer);
         
-        if(ps->input.mouse.lmb.down)
+        if(ps->input.mouse.lmb.down && !game_state.is_phyics_active)
         {
             //Begin the pull
             finger_pull.pull_begin = true;
@@ -1546,22 +1623,44 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         }
         else
         {
-
             if(finger_pull.pull_begin)
             {
                 finger_pull.end_pull_p  = ps->input.mouse.p;
-                if(!CheckValidFingerPull(&finger_pull))
+                if(!CheckValidFingerPull(&finger_pull) || !finger_pull.koma || finger_pull.koma->player_id != game_state.current_player_id)
                 {
                     finger_pull.pull_begin = false;
+                    finger_pull.koma = nullptr;
+                    finger_pull.start_pull_p = f2_create(0,0);
+                    finger_pull.end_pull_p = f2_create(0,0);
+                    finger_pull.pull_begin = false;                    
                 }
-                if(finger_pull.pull_begin && finger_pull.koma)
+                
+                else if(finger_pull.pull_begin && finger_pull.koma)
                 {
                     //Pull was valid
+                    f32 max_pull_length  = 20;
+                    finger_pull.koma->action_type = koma_action_type_attack;
                     f2 pull_dif = f2_sub(finger_pull.end_pull_p,finger_pull.start_pull_p);
                     f3 flick_dir = f3_create(pull_dif.x,pull_dif.y,0);
-                    flick_dir = f3_create(flick_dir.x,flick_dir.y,0);
+                    f32 flick_dir_length = fmin(f3_length(flick_dir),max_pull_length);
+                    flick_dir = f3_normalize(f3_create(flick_dir.x,flick_dir.y,0));
+                    f32  scale_down_speed = 12.0f;
+                    f32 flick_speed = flick_dir_length * finger_pull.koma->max_speed * scale_down_speed;
+                    flick_dir = f3_mul_s(flick_dir,flick_speed);
                     PxVec3 pulldirpx3 = PxVec3(flick_dir.x,flick_dir.y,flick_dir.z);
-                    ((PxRigidDynamic*)finger_pull.koma->rigid_body.state)->setLinearVelocity(pulldirpx3);
+                    
+//                    ((PxRigidDynamic*)finger_pull.koma->rigid_body.state)->setLinearVelocity(pulldirpx3);
+                    ((PxRigidDynamic*)finger_pull.koma->rigid_body.state)->addForce(pulldirpx3,	PxForceMode::Enum::eVELOCITY_CHANGE);
+
+                    game_state.flicked_koma = finger_pull.koma;
+                    finger_pull.koma = nullptr;
+                    finger_pull.start_pull_p = f2_create(0,0);
+                    finger_pull.end_pull_p = f2_create(0,0);
+                    finger_pull.pull_begin = false;                    
+                }
+                
+                else
+                {
                     finger_pull.koma = nullptr;
                     finger_pull.start_pull_p = f2_create(0,0);
                     finger_pull.end_pull_p = f2_create(0,0);
@@ -1570,38 +1669,63 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             }
         }
 
-        //Set friction on moving bodies
+        //Updte our Koma game pieces on moving bodies
+        f32 komas_total_linear_velocity = 0.0f;        
         for(int i = 0;i < komas.fixed.count;++i)
         {
             Koma* k = fmj_stretch_buffer_check_out(Koma,&komas,i);
+            
+            if(game_state.current_player_id == (k->player_id + 1) % 2)
+            {
+                PhysicsCode::LockRigidPosition(k->rigid_body);                
+            }
+            else
+            {
+                PhysicsCode::UnlockRigidPosition(k->rigid_body);
+            }
 
             PxVec3 lv = ((PxRigidDynamic*)k->rigid_body.state)->getLinearVelocity();
+            
+            f32 koma_vel_len = f3_length(f3_create(lv.x,lv.y,lv.z));
+
+            komas_total_linear_velocity += koma_vel_len;            
             lv *= ground_friction;
             if(k->hp > 0)
-                ((PxRigidDynamic*)k->rigid_body.state)->setLinearVelocity(lv);
+                ((PxRigidDynamic*)k->rigid_body.state)->addForce(-lv,	PxForceMode::Enum::eIMPULSE);
+//                ((PxRigidDynamic*)k->rigid_body.state)->setLinearVelocity(lv);
             
             u64 outer_sprite_id;
             u32 j = k->team_id;
             u32 t_id;
-            if(j > 4)
+            f32 rook_max_speed = 30.0f;
+            f32 pawn_max_speed = 20.0f;
+            f32 queen_max_speed = 38.0f;
+            f32 king_max_speed = 10.0f;
+//            f32 base_friction = ground_friction;
+            
+            if(j > 4)//pawn
             {
                 u32 start = k->hp + pawn_tex_id_range.x;
                 t_id = clamp(start,pawn_tex_id_range.x + 1,pawn_tex_id_range.y);
+                k->max_speed = pawn_max_speed;
             }
-            else if(j == 1 || j == 3)
+            else if(j == 1 || j == 3)//queen
             {
                 u32 start = k->hp + queen_tex_id_range.x;
                 t_id = clamp(start,queen_tex_id_range.x + 1,queen_tex_id_range.y);
+                k->max_speed = queen_max_speed;
             }
-            else if(j == 2)
+            else if(j == 2)//king
             {
                 u32 start = k->hp + king_tex_id_range.x;
                 t_id = clamp(start,king_tex_id_range.x + 1,king_tex_id_range.y);
+                k->max_speed = king_max_speed;
             }
             else if(j == 0 || j == 4)
             {
                 u32 start = k->hp + rook_tex_id_range.x;
                 t_id = clamp(start,rook_tex_id_range.x + 1,rook_tex_id_range.y);
+                k->max_speed = rook_max_speed;
             }
             else
             {
@@ -1620,11 +1744,11 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 
             PxTransform pxt = ((PxRigidDynamic*)k->rigid_body.state)->getGlobalPose();
             f3 new_p = f3_create(pxt.p.x,pxt.p.y,pxt.p.z);
-
+            quaternion new_r = quaternion_create(pxt.q.x,pxt.q.y,pxt.q.z,pxt.q.w);
+            
             inner_koma_st->t.p = new_p;
             outer_koma_st->t.p = inner_koma_st->t.p;
-            
-            outer_koma_st->t.r = f3_axis_angle(f3_create(0,0,1),outer_angle_rot);
+            outer_koma_st->t.r = new_r;//f3_axis_angle(f3_create(0,0,1),outer_angle_rot);
             outer_angle_rot += 0.01f;
             fmj_3dtrans_update(&outer_koma_st->t);
             fmj_3dtrans_update(&inner_koma_st->t);
@@ -1637,13 +1761,39 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                 inner_koma_st->sprite.is_visible = false;
             }
             outer_koma_st->sprite.tex_id = outer_sprite_id;
+
+            //TODO(Ray):DOO this when we change turns 
+            if(k->hp <= 0)
+            {
+
+                PhysicsCode::SetFlagForActor((PxActor*)k->rigid_body.state,PxActorFlag::Enum::eDISABLE_SIMULATION ,true);
+            }
             
             f4x4* outer_model_matrix = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,outer_koma_st->model_matrix_id);
             *outer_model_matrix = outer_koma_st->t.m;
             f4x4* inner_model_matrix = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,inner_koma_st->model_matrix_id);
             *inner_model_matrix = inner_koma_st->t.m;
+            
         }
 
+        if(komas_total_linear_velocity <= 6.5f)
+        {
+            if(game_state.is_phyics_active)
+            {
+                game_state.current_player_id = (game_state.current_player_id + 1) % 2;
+                if(game_state.flicked_koma)
+                {
+                    game_state.flicked_koma->action_type = koma_action_type_defense;
+                    game_state.flicked_koma = nullptr;                
+                }
+            }
+            game_state.is_phyics_active = false;
+        }
+        else
+        {
+            game_state.is_phyics_active = true;
+        }
+        
         if(ps->input.mouse.lmb.released)
         {
             show_title = false;
@@ -1683,12 +1833,11 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             }            
         }
 
-/*
         for(int i = 0;i < ui_fixed_quad_buffer.count;++i)
         {
             FMJRenderCommand com = {};
             SpriteTrans st = fmj_fixed_buffer_get(SpriteTrans,&ui_fixed_quad_buffer,i);
-            FMJSprite s = fmj_stretch_buffer_get(FMJSprite,&asset_tables.sprites,st.sprite_id);
+            FMJSprite s = st.sprite;//fmj_stretch_buffer_get(FMJSprite,&asset_tables.sprites,st.sprite_id);
             if(s.is_visible)
             {
                 ui_geo.offset = (i * 6);
@@ -1701,7 +1850,6 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                 fmj_stretch_buffer_push(&render_command_buffer,(void*)&com);
             }
         }
-*/
         
 //Render commands are issued to the api
 
@@ -1763,8 +1911,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 
         fmj_stretch_buffer_clear(&render_command_buffer);
 //Handle windows message and do it again.
-        PhysicsCode::Update(&scene,1,0.016f);                
-//        SoundCode::Update();
+        PhysicsCode::Update(&scene,1,ps->time.delta_seconds);                
+        SoundCode::Update();
         HandleWindowsMessages(ps);        
     }
     return 0;

@@ -223,7 +223,6 @@ static PxDefaultAllocator gDefaultAllocatorCallback;
         shape->setSimulationFilterData(filterData);
     }
 
-
     void SetFlagsForActor(PxActor* actor,PxActorFlag::Enum flags)
     {
         actor->setActorFlags(flags);            
@@ -232,6 +231,54 @@ static PxDefaultAllocator gDefaultAllocatorCallback;
     void SetFlagForActor(PxActor* actor,PxActorFlag::Enum flag,bool state)
     {
         actor->setActorFlag(flag, state);            
+    }
+
+    void UnlockRigidAll(RigidBody rbd)
+    {
+        ((PxRigidDynamic*)rbd.state)->setRigidDynamicLockFlag(PxRigidDynamicLockFlag::eLOCK_LINEAR_X,false);
+        ((PxRigidDynamic*)rbd.state)->setRigidDynamicLockFlag(PxRigidDynamicLockFlag::eLOCK_LINEAR_Y,false);
+        ((PxRigidDynamic*)rbd.state)->setRigidDynamicLockFlag(PxRigidDynamicLockFlag::eLOCK_LINEAR_Z,false);
+        ((PxRigidDynamic*)rbd.state)->setRigidDynamicLockFlag(PxRigidDynamicLockFlag::eLOCK_ANGULAR_X,false);
+        ((PxRigidDynamic*)rbd.state)->setRigidDynamicLockFlag(PxRigidDynamicLockFlag::eLOCK_ANGULAR_Y,false);
+        ((PxRigidDynamic*)rbd.state)->setRigidDynamicLockFlag(PxRigidDynamicLockFlag::eLOCK_ANGULAR_Z,false);        
+    }
+    
+    void UnlockRigidPosition(RigidBody rbd)
+    {
+        ((PxRigidDynamic*)rbd.state)->setRigidDynamicLockFlag(PxRigidDynamicLockFlag::eLOCK_LINEAR_X,false);
+        ((PxRigidDynamic*)rbd.state)->setRigidDynamicLockFlag(PxRigidDynamicLockFlag::eLOCK_LINEAR_Y,false);
+        ((PxRigidDynamic*)rbd.state)->setRigidDynamicLockFlag(PxRigidDynamicLockFlag::eLOCK_LINEAR_Z,false);
+    }
+    
+    void LockRigidPosition(RigidBody rbd)
+    {
+        ((PxRigidDynamic*)rbd.state)->setRigidDynamicLockFlag(PxRigidDynamicLockFlag::eLOCK_LINEAR_X,true);
+        ((PxRigidDynamic*)rbd.state)->setRigidDynamicLockFlag(PxRigidDynamicLockFlag::eLOCK_LINEAR_Y,true);
+        ((PxRigidDynamic*)rbd.state)->setRigidDynamicLockFlag(PxRigidDynamicLockFlag::eLOCK_LINEAR_Z,true);        
+    }
+
+    void UnLockRigidRotation(RigidBody rbd)
+    {
+        ((PxRigidDynamic*)rbd.state)->setRigidDynamicLockFlag(PxRigidDynamicLockFlag::eLOCK_ANGULAR_X,false);
+        ((PxRigidDynamic*)rbd.state)->setRigidDynamicLockFlag(PxRigidDynamicLockFlag::eLOCK_ANGULAR_Y,false);
+        ((PxRigidDynamic*)rbd.state)->setRigidDynamicLockFlag(PxRigidDynamicLockFlag::eLOCK_ANGULAR_Z,false);                
+    }
+
+    void LockRigidRotation(RigidBody rbd)
+    {
+        ((PxRigidDynamic*)rbd.state)->setRigidDynamicLockFlag(PxRigidDynamicLockFlag::eLOCK_ANGULAR_X,true);
+        ((PxRigidDynamic*)rbd.state)->setRigidDynamicLockFlag(PxRigidDynamicLockFlag::eLOCK_ANGULAR_Y,true);
+        ((PxRigidDynamic*)rbd.state)->setRigidDynamicLockFlag(PxRigidDynamicLockFlag::eLOCK_ANGULAR_Z,true);                
+    }
+    
+    void SetRigidDynamicLockFlag(RigidBody rbd,physx::PxRigidDynamicLockFlag::Enum flag,bool value)
+    {
+        ((PxRigidDynamic*)rbd.state)->setRigidDynamicLockFlag(flag,value);            
+    }
+    
+    void SetRigidDynamicLockFlags(RigidBody rbd,physx::PxRigidDynamicLockFlags flags)
+    {
+        ((PxRigidDynamic*)rbd.state)->setRigidDynamicLockFlags(flags);            
     }
     
     void DisableGravity(PxActor* actor,bool enable)
