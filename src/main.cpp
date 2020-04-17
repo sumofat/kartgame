@@ -18,176 +18,17 @@ extern "C"{
 #include "physics.h"
 #include "physics.cpp"
 
-static SoundClip bgm_soundclip;
-PhysicsScene scene;
-PhysicsMaterial physics_material;
-//f32 ground_friction = 0.998f;
-f32 ground_friction = 0.0032f;
-FMJFixedBuffer ui_fixed_quad_buffer;
-enum KomaType
-{
-    koma_type_none,
-    koma_type_pawn,
-    koma_type_rook,
-    koma_type_queen,
-    koma_type_king
-};
+#include "platform_win32.h"
 
-enum KomaActionType
-{
-    koma_action_type_none,
-    koma_action_type_attack,
-    koma_action_type_defense
-};
+#include "assets.h"
 
-struct Koma
-{
-    u64 inner_id;
-    u64 outer_id;
-//    f3 velocity;
-    RigidBody rigid_body;
-    int hp;
-    u32 max_hp;
-    u32 atk_pow;
-    KomaType type;
-    KomaActionType action_type;
-    f32 max_speed;
-    f32 friction;
-    u32 team_id;//index out of  10
-    u32  player_id;
-}typedef Koma;
+#include "koma.h"
+#include "ping_game.h"
 
-struct GameState
-{
-    Koma* flicked_koma;
-    u32  current_player_id;
-    u32 is_phyics_active;
-};
 
-GameState game_state;
+AssetTables asset_tables = {0};
+u64 material_count = 0;
 
-PxFilterFlags KomaFilterShader(
-    PxFilterObjectAttributes attributes0, PxFilterData filterData0,
-    PxFilterObjectAttributes attributes1, PxFilterData filterData1,
-    PxPairFlags& pairFlags, const void* constantBlock, PxU32 constantBlockSize)
-{
-    // let triggers through
-    if(PxFilterObjectIsTrigger(attributes0) || PxFilterObjectIsTrigger(attributes1))
-    {
-        pairFlags = PxPairFlag::eTRIGGER_DEFAULT;
-        return PxFilterFlag::eDEFAULT;
-    }
-    // generate contacts for all that were not filtered above
-    pairFlags = PxPairFlag::eCONTACT_DEFAULT;
-
-    // trigger the contact callback for pairs (A,B) where
-    // the filtermask of A contains the ID of B and vice versa.
-    if((filterData0.word0 & filterData1.word1) && (filterData1.word0 & filterData0.word1))
-    {
-        pairFlags |= PxPairFlag::eNOTIFY_TOUCH_FOUND;        
-    }
-    return PxFilterFlag::eDEFAULT;
-}
-
-bool prev_lmb_state = false;
-struct FingerPull
-{
-    f2 start_pull_p;
-    f2 end_pull_p;
-    float pull_strength;
-    bool pull_begin = false;
-    Koma* koma;
-//    u64 koma_id
-};
-
-static FingerPull finger_pull = {};
-
-bool CheckValidFingerPull(FingerPull* fp)
-{
-    ASSERT(fp);
-    fp->pull_strength = abs(f2_length(f2_sub(fp->start_pull_p,fp->end_pull_p)));
-    if(fp->pull_strength > 2)
-    {
-        return true;
-    }
-    fp->pull_strength = 0;
-    return false;
-}
-
-FMJStretchBuffer komas;
-
-class GamePiecePhysicsCallback : public PxSimulationEventCallback
-{
-	void onConstraintBreak(PxConstraintInfo* constraints, PxU32 count) override
-	{
-		int a = 0;
-	}
-	void onWake(PxActor** actors, PxU32 count) override
-	{
-		int a = 0;
-	}
-	void onSleep(PxActor** actors, PxU32 count) override
-	{
-		int a = 0;
-	}
-	void onTrigger(PxTriggerPair* pairs, PxU32 count) override
-	{
-		int a = 0;
-	}
-	void onAdvance(const PxRigidBody*const* bodyBuffer, const PxTransform* poseBuffer, const PxU32 count) override
-	{
-		int a = 0;
-	}
-
-	void onContact(const PxContactPairHeader& pairHeader, const PxContactPair* pairs, PxU32 nbPairs) override
-	{
-		for (PxU32 i = 0; i < nbPairs; i++)
-		{
-			const PxContactPair& cp = pairs[i];
-            {
-                u64 k_i = (u64)pairHeader.actors[0]->userData;
-                Koma* k  = fmj_stretch_buffer_check_out(Koma,&komas,k_i);
-
-                u64 k2_i = (u64)pairHeader.actors[1]->userData;                                            
-                Koma* k2 = fmj_stretch_buffer_check_out(Koma,&komas,k2_i);
-/*
-                if(k->player_id == k2->player_id)
-                {
-                    //simulate physics for own team only
-                    //and take damage
-                    if(k->action_type == koma_action_type_defense)
-                    {
-                        u32 atk_pow = k->atk_pow;
-                        k2->hp -= max(atk_pow,0);                                        
-                    }
-                    else if(k2->action_type == koma_action_type_defense)
-                    {
-                        u32 atk_pow = k2->atk_pow;                        
-                        k->hp -= max(atk_pow,0);                                        
-                    }
-                }
-                //               else
-                */
-                {
-                    //take damage but no physics
-                    if(k->action_type == koma_action_type_attack)
-                    {
-                        u32 atk_pow = k->atk_pow;
-                        k2->hp -= max(atk_pow,0);                                        
-                    }
-                    else if(k2->action_type == koma_action_type_attack)
-                    {
-                        u32 atk_pow = k2->atk_pow;                        
-                        k->hp -= max(atk_pow,0);                                        
-                    }
-                }
-
-                fmj_stretch_buffer_check_in(&komas);
-                fmj_stretch_buffer_check_in(&komas);
-            }
-		}
-	}
-};
 
 enum RenderCameraProjectionType
 {
@@ -209,487 +50,10 @@ struct RenderCamera
     f2 near_far_planes;
 };
 
-#define MAX_KEYS 256
-#define MAX_CONTROLLER_SUPPORT 2
-struct Keys
-{
-    u32 w;
-	u32 e;
-	u32 r;
-    u32 a;
-    u32 s;
-    u32 d;
-    u32 f;
-    u32 i;
-    u32 j;
-    u32 k;
-    u32 l;
-    u32 f1;
-    u32 f2;
-    u32 f3;
-};
-
-Keys keys;
-
-struct Time
-{
-    u64 frame_index;
-    f32 delta_seconds;
-    u64 delta_ticks;
-    u64 delta_nanoseconds;
-    u64 delta_microseconds;
-    u64 delta_miliseconds;
-
-    u64 delta_samples;
-    
-    f64 time_seconds;
-    u64 time_ticks;
-    u64 time_nanoseconds;
-    u64 time_microseconds;
-    u64 time_miliseconds;
-
-    u64 ticks_per_second;
-    u64 initial_ticks;
-
-    u64 prev_ticks;
-};
-
-struct DigitalButton
-{
-    bool down;
-    bool pressed;
-    bool released;
-};
-
-struct Keyboard
-{
-    DigitalButton keys[MAX_KEYS];    
-};
-
-struct AnalogButton
-{
-    f32 threshold;
-    f32 value;
-    bool down;
-    bool pressed;
-    bool released;
-};
-
-struct Axis
-{
-    f32 value;
-    f32 threshold;
-};
-
-//TODO(Ray):Handle other types of axis like ruddder/throttle etc...
-struct Stick
-{
-    Axis X;
-    Axis Y;
-};
-
-struct GamePad
-{
-#if WINDOWS
-    XINPUT_STATE state;    
-#endif
-    
-    Stick left_stick;
-    Stick right_stick;
- 
-    Axis left_shoulder;
-    Axis right_shoulder;
-
-    DigitalButton up;
-    DigitalButton down;
-    DigitalButton left;
-    DigitalButton right;
- 
-    DigitalButton a;
-    DigitalButton b;
-    DigitalButton x;
-    DigitalButton y;
-
-    DigitalButton l;
-    DigitalButton r;
-
-    DigitalButton select;
-    DigitalButton start;    
-};
-
-struct Mouse
-{
-    f2 p;
-    f2 prev_p;
-    f2 delta_p;
-    f2 uv;
-    f2 prev_uv;
-    f2 delta_uv;
-
-    DigitalButton lmb;//left_mouse_button
-    DigitalButton rmb;
-	bool wrap_mode;
-};
-
-struct Input
-{
-    Keyboard keyboard;
-    Mouse mouse;
-    GamePad game_pads[MAX_CONTROLLER_SUPPORT];
-};
-
-struct SystemInfo
-{
-#if WINDOWS
-    SYSTEM_INFO system_info;
-#endif
-    int a;
-} typedef SystemInfo;
-
-struct Window
-{
-#if WINDOWS
-    WNDCLASS w_class;
-    HWND handle;
-    HDC device_context;
-    WINDOWPLACEMENT global_window_p;
-#endif
-	f2 dim;
-    f2 p;
-    bool is_full_screen_mode;
-} typedef Window;
-
-struct PlatformState
-{
-    Time time;
-    Input input;
-//    Renderer renderer;
-//    Audio audio;
-    Window window;
-//    Memory memory;
-    SystemInfo info;
-    bool is_running;
-} typedef PlatformState;
-
-struct GlobalMemory
-{
-    PlatformState ps;  
-} typedef GlobalMemory;
-
-GlobalMemory gm;
-
-//Functions
-
-f2 GetWin32WindowDim(PlatformState* ps)
-{
-    RECT client_rect;
-    GetClientRect(ps->window.handle, &client_rect);
-	return f2_create(client_rect.right - client_rect.left, client_rect.bottom - client_rect.top);
-}
-void PullTimeState(PlatformState* ps)
-{
-#if WINDOWS
-    LARGE_INTEGER li;
-#endif
-
-    if(ps->time.frame_index == 0)
-   {
-
-#if OSX || IOS
-       ps->time.initial_ticks =  mach_absolute_time();
-       ps->time.prev_ticks = ps->time.initial_ticks;
-#elif WINDOWS
-       QueryPerformanceCounter(&li);
-       ps->time.initial_ticks =  li.QuadPart;
-       ps->time.prev_ticks = ps->time.initial_ticks;
-#endif
-   }
-
-#if WINDOWS
-    QueryPerformanceCounter(&li);
-    u64 current_ticks = li.QuadPart;
-#elif OSX || IOS
-    u64 current_ticks = mach_absolute_time();
-#endif
-    
-    ps->time.delta_ticks = current_ticks - ps->time.prev_ticks;//ps->time.time_ticks;
-    ps->time.time_ticks = current_ticks - ps->time.initial_ticks;
-    ps->time.prev_ticks = current_ticks;    
-
-#if OSX || IOS
-    if(ps->time.ticks_per_second == 1000)
-    {
-        ps->time.delta_nanoseconds = (ps->time.delta_ticks);
-    }
-    else
-    {
-        //NOTE(RAY):Untested!!!
-        ps->time.delta_nanoseconds = (ps->time.delta_ticks) * ps->time.ticks_per_second;
-        ps->time.delta_nanoseconds = ps->time.delta_nanoseconds;
-    }
-#elif WINDOWS
-    ps->time.delta_nanoseconds = (1000 * 1000 * 1000 * ps->time.delta_ticks) / ps->time.ticks_per_second;
-#endif
-    
-    ps->time.delta_microseconds = ps->time.delta_nanoseconds / 1000;
-    ps->time.delta_miliseconds = ps->time.delta_microseconds / 1000;
-#if WINDOWS
-    ps->time.delta_seconds = ((f32)ps->time.delta_ticks / (f32)ps->time.ticks_per_second);
-#elif OSX
-    ps->time.delta_seconds = ((f32)ps->time.delta_miliseconds / (f32)1000);
-#endif
-
-#if OSX || IOS
-        ps->time.time_nanoseconds = (ps->time.time_ticks) * ps->time.ticks_per_second * 10;
-#elif WINDOWS
-        ps->time.time_nanoseconds = (1000 * 1000 * 1000 * ps->time.time_ticks) / ps->time.ticks_per_second;
-#endif
-    ps->time.time_microseconds = ps->time.time_nanoseconds / 1000;
-    ps->time.time_miliseconds = ps->time.time_microseconds / 1000;
-    ps->time.time_seconds = (f64)ps->time.time_ticks / (f64)ps->time.ticks_per_second;
-    ps->time.frame_index++;
-}
-
-void UpdateDigitalButton(DigitalButton* button,u32 state)
-{
-    bool was_down = button->down;
-    bool down = state >> 7;
-    button->pressed = !was_down && down;
-    button->released = was_down && !down;
-    button->down = down;    
-}
-
-void PullMouseState(PlatformState* ps)
-{
-    Input* input = &ps->input;
-    if(input)
-    {
-         POINT MouseP;
-         GetCursorPos(&MouseP);
-         ScreenToClient(ps->window.handle, &MouseP);
-         //TODO(Ray):Account for non full screen mode header 
-         f2 window_dim = GetWin32WindowDim(ps);
-		 f2 current_mouse_p = f2_create(MouseP.x, (window_dim.y) - MouseP.y);
-         f2 delta_mouse_p = f2_sub(input->mouse.prev_p,current_mouse_p);
-		if(ps->input.mouse.wrap_mode)
-		{
-			if (MouseP.x > window_dim.x - 1)
-			{
-				POINT new_p;
-				new_p.x = 1;
-				new_p.y = MouseP.y;
-				if (ClientToScreen(ps->window.handle, &new_p))
-				{
-					SetCursorPos(new_p.x, new_p.y);
-					ScreenToClient(ps->window.handle, &new_p);
-					current_mouse_p.x = 1;
-					delta_mouse_p.x = 1;
-				}
-			}
-			if (MouseP.y > window_dim.y - 1)
-			{
-				POINT new_p;
-				new_p.x = current_mouse_p.x;
-				new_p.y = 1;
-				if (ClientToScreen(ps->window.handle, &new_p))
-				{
-					SetCursorPos(new_p.x, new_p.y);
-					ScreenToClient(ps->window.handle, &new_p);
-					current_mouse_p.y = ((window_dim.y) - new_p.y);
-					delta_mouse_p.y = -1;
-				}
-			}
-			if (MouseP.x < 1)
-			{
-				POINT new_p;
-				new_p.x = window_dim.x - 1;
-				new_p.y = MouseP.y;
-				if (ClientToScreen(ps->window.handle, &new_p))
-				{
-					SetCursorPos(new_p.x, new_p.y);
-					ScreenToClient(ps->window.handle, &new_p);
-					current_mouse_p.x = window_dim.x - 1;
-					delta_mouse_p.x = -1;
-				}
-			}
-			if (MouseP.y < 1)
-			{
-				POINT new_p;
-				new_p.x = (int)current_mouse_p.x;
-				new_p.y = window_dim.y - 1;
-				if (ClientToScreen(ps->window.handle, &new_p))
-				{
-					SetCursorPos(new_p.x, new_p.y);
-					ScreenToClient(ps->window.handle, &new_p);
-					current_mouse_p.y = window_dim.y - new_p.y;
-					delta_mouse_p.y = -1;
-				}
-			}
-		}
-        input->mouse.p = current_mouse_p;
-        input->mouse.delta_p = delta_mouse_p;
-        input->mouse.prev_uv = input->mouse.uv;
-        input->mouse.uv = f2_create(input->mouse.p.x / ps->window.dim.x, input->mouse.p.y / ps->window.dim.y);
-        input->mouse.delta_uv = f2_sub(input->mouse.prev_uv,input->mouse.uv);
-        input->mouse.prev_p = input->mouse.p;
-
-        u32 lmbstate = GetAsyncKeyState(VK_LBUTTON);
-        UpdateDigitalButton(&input->mouse.lmb,lmbstate);
-        u32 rmbstate = GetAsyncKeyState(VK_RBUTTON);
-        UpdateDigitalButton(&input->mouse.rmb,rmbstate);         
-    }
-}
-
-void PullDigitalButtons(PlatformState* ps)
-{
-    Input* input = &ps->input;
-    BYTE keyboard_state[MAX_KEYS];
-    if(GetKeyboardState(keyboard_state))
-    {
-        for(int i = 0;i < MAX_KEYS;++i)
-        {
-            DigitalButton* button = &input->keyboard.keys[i];
-            bool was_down = button->down;
-            bool down = keyboard_state[i] >> 7;
-            button->pressed = !was_down && down;
-            button->released = was_down && !down;
-            button->down = down;
-        }
-    }
-}
-
-void SetButton(DigitalButton* button,u32 button_type,XINPUT_STATE state)
-{
-    bool was_down = button->down;
-    bool down = ((state.Gamepad.wButtons & button_type) != 0);
-    button->pressed = !was_down && down;
-    button->released = was_down && !down;
-    button->down = down;
-}
-
-void PullGamePads(PlatformState* ps)
-{
-    for (DWORD i = 0; i < MAX_CONTROLLER_SUPPORT; i++)
-    {
-        XINPUT_STATE state;
-        ZeroMemory(&state, sizeof(XINPUT_STATE));
-
-        GamePad* game_pad = &ps->input.game_pads[i];
-        if (XInputGetState(i, &state) == ERROR_SUCCESS)
-        {
-            game_pad[i].state = state;
-            SetButton(&game_pad[i].a,XINPUT_GAMEPAD_A,state);
-            SetButton(&game_pad[i].b,XINPUT_GAMEPAD_B,state);
-            SetButton(&game_pad[i].x,XINPUT_GAMEPAD_X,state);
-            SetButton(&game_pad[i].y,XINPUT_GAMEPAD_Y,state);
-            SetButton(&game_pad[i].l,XINPUT_GAMEPAD_LEFT_SHOULDER,state);
-            SetButton(&game_pad[i].r,XINPUT_GAMEPAD_RIGHT_SHOULDER,state);
-            SetButton(&game_pad[i].select,XINPUT_GAMEPAD_BACK,state);
-            SetButton(&game_pad[i].start,XINPUT_GAMEPAD_START,state);
-
-            game_pad[i].left_shoulder.value = (f32)state.Gamepad.bLeftTrigger / 255;
-            game_pad[i].right_shoulder.value = (f32) state.Gamepad.bRightTrigger / 255;
-
-            game_pad[i].left_stick.X.value = clamp((float)state.Gamepad.sThumbLX / 32767 ,-1,1);
-            game_pad[i].left_stick.Y.value = clamp((float)state.Gamepad.sThumbLY / 32767 ,-1,1);
-
-            game_pad[i].right_stick.X.value = clamp((float)state.Gamepad.sThumbRX / 32767 ,-1,1);
-            game_pad[i].right_stick.Y.value = clamp((float)state.Gamepad.sThumbRY / 32767 ,-1,1);
-        }
-    } 
-}
-
-void WINSetScreenMode(PlatformState* ps,bool is_full_screen)
-{
-    HWND Window = ps->window.handle;
-    LONG Style = GetWindowLong(Window, GWL_STYLE);
-    ps->window.is_full_screen_mode = is_full_screen;
-    if(ps->window.is_full_screen_mode)
-    {
-        MONITORINFO mi = { sizeof(mi) };
-        if (GetWindowPlacement(Window, &ps->window.global_window_p) &&
-            GetMonitorInfo(MonitorFromWindow(Window,
-                                             MONITOR_DEFAULTTOPRIMARY), &mi))
-        {
-            SetWindowLong(Window, GWL_STYLE,Style& ~WS_OVERLAPPEDWINDOW);
-            SetWindowPos(Window, HWND_TOP,
-                         mi.rcMonitor.left, mi.rcMonitor.top,
-                         mi.rcMonitor.right - mi.rcMonitor.left,
-                         mi.rcMonitor.bottom - mi.rcMonitor.top,
-                         SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-            ps->window.is_full_screen_mode = true;
-			ps->window.dim = f2_create(mi.rcMonitor.right - mi.rcMonitor.left, mi.rcMonitor.bottom - mi.rcMonitor.top);
-        }
-    }
-    else
-    {
-        ps->window.is_full_screen_mode = false;
-        SetWindowLong(Window, GWL_STYLE,Style& ~WS_OVERLAPPEDWINDOW);
-        //SetWindowLong(Window, GWL_STYLE, Style | WS_OVERLAPPEDWINDOW);
-        SetWindowPlacement(Window, &ps->window.global_window_p);
-        SetWindowPos(Window,
-nullptr, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
-                     SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-    }
-}
-
-
-struct SpriteTrans
-{
-    u64 id;
-//    u64 sprite_id;//not  using ref sprites in this  game common case is to use
-    //every sprite will be different
-    FMJSprite sprite;
-    u64 material_id;
-    u64 model_matrix_id;
-    FMJ3DTrans t;
-}typedef SpriteTrans;
-
-u64 sprite_trans_create(f3 p,f3 s,quaternion r,f4 color,FMJSprite sprite,FMJStretchBuffer* matrix_buffer,FMJFixedBuffer* buffer,FMJMemoryArena* sb_arena)
-{
-    f2 stbl = f2_create(0.0f,0.0f);
-    f2 stbr = f2_create(1.0f,0.0f);
-    f2 sttr = f2_create(1.0f,1.0f);
-    f2 sttl = f2_create(0.0f,1.0f);
-    f2 uvs[4] = {stbl,stbr,sttr,sttl};
-    
-    SpriteTrans result = {0};
-    FMJ3DTrans t = {0};
-    t.p = p;
-    t.s = s;
-    t.r = r;
-    fmj_3dtrans_update(&t);
-    result.t = t;
-    result.sprite = sprite;
-    result.model_matrix_id = fmj_stretch_buffer_push(matrix_buffer,&result.t.m);
-    u64 id = fmj_fixed_buffer_push(buffer,(void*)&result);
-    //NOTE(Ray):PRS is not used here  just the matrix that is passed above.
-    fmj_sprite_add_quad_notrans(sb_arena,p,r,s,color,uvs);
-    return id;
-}
-
-struct AssetTables
-{
-    AnyCache materials;
-    AnyCache geometries;
-    FMJStretchBuffer sprites;
-    FMJStretchBuffer vertex_buffers;
-}typedef;
-
-FMJSprite add_sprite_to_stretch_buffer(FMJStretchBuffer* sprites,u64 material_id,u64 tex_id,f2 uvs[],f4 color,bool is_visible)
-{
-    FMJSprite result = {0};
-    result = fmj_sprite_init(tex_id,uvs,color,is_visible);
-    result.material_id = material_id;
-    u64 sprite_id = fmj_stretch_buffer_push(sprites,(void*)&result);
-    result.id = sprite_id;
-    return result;    
-}
-
-AssetTables asset_tables = {0};
-u64 material_count = 0;
 //draw nodes
+//TODO(Ray):Not for sure what convention to use here before we pull this into FMJ
+//either each node is associate with a FMJ3DTrans or it has an ID or some other way
+//for the user to connect rendering to the  ui nodes.
 void fmj_ui_commit_nodes_for_drawing(FMJMemoryArena* arena,FMJUINode base_node,FMJFixedBuffer* quad_buffer,f4 color,f2 uvs[])
 {
     for(int i = 0;i < base_node.children.fixed.count;++i)
@@ -697,24 +61,11 @@ void fmj_ui_commit_nodes_for_drawing(FMJMemoryArena* arena,FMJUINode base_node,F
         FMJUINode* child_node = fmj_stretch_buffer_check_out(FMJUINode,&base_node.children,i);
         if(child_node)
         {
-
-//            f2 d = ps->window.dim;
-//            f2 hd = f2_div_s(d,2.0f);
-
-//            transform.p = f3_create(hd.x,hd.y,0);
-//            transform.s = f3_create(ping_title.dim.x,ping_title.dim.y,1.0f);
-//            transform.s = f3_create(ps->window.dim.x,ps->window.dim.y,1.0f);            
-//            transform.r = f3_axis_angle(f3_create(0,0,1),0);
-//            fmj_3dtrans_update(&transform);
-        
-//            st.t = transform;
-//            st.s = fmj_sprite_init(3,uvs,white,true);
             if(child_node->type == fmj_ui_node_sprite)
             {
                 SpriteTrans st= {0};
                 st.sprite = child_node->sprite;
                 child_node->st_id = fmj_fixed_buffer_push(quad_buffer,(void*)&st);
-//fmj_sprite_add_quad_notrans(&sb.arena,transform.p,transform.r,transform.s,white,uvs);                    
                 fmj_sprite_add_rect_with_dim(arena,child_node->rect.dim,0,child_node->rect.color,uvs);
             }
             else
@@ -725,216 +76,43 @@ void fmj_ui_commit_nodes_for_drawing(FMJMemoryArena* arena,FMJUINode base_node,F
         }
     }
 }
-
-
-
-LRESULT CALLBACK MainWindowCallbackFunc(HWND Window,
-                   UINT Message,
-                   WPARAM WParam,
-                   LPARAM LParam)
-{
-
-/*
-#if IMGUI
-    if (ImGui_ImplWin32_WndProcHandler(Window, Message, WParam, LParam))
-        return true;
-#endif
-*/
-    
-    LRESULT Result = 0;
-    switch(Message)
-    {
-        case WM_PAINT:
-        {
-            PAINTSTRUCT ps;
-            HDC hDc = BeginPaint(Window, &ps);
-//            FillRect(hDc, &ps.rcPaint, (HBRUSH) (COLOR_WINDOW + 1));
-            EndPaint(Window, &ps);
-            return 0;
-        }break;
-//NOTE(Ray): We do not allow resizing at the moment.
-//        case WM_SIZE:
-//        {
-//            if (dev != NULL && WParam != SIZE_MINIMIZED)
-//            {
-//            ImGui_ImplDX11_InvalidateDeviceObjects();
-//            CleanupRenderTarget();
-//            swapchain->ResizeBuffers(0, (UINT)LOWORD(lParam), (UINT)HIWORD(lParam), DXGI_FORMAT_UNKNOWN, 0);
-//            CreateRenderTarget();
-//            ImGui_ImplDX11_CreateDeviceObjects();
-//            }
-//            return 0;
-//        }
-        case WM_CLOSE:
-        case WM_DESTROY:
-        {
-            gm.ps.is_running = false;
-        } break;
-        case WM_ACTIVATEAPP:
-        {
-            
-        } break;
-        case WM_SYSKEYDOWN:
-        case WM_SYSKEYUP:
-        case WM_KEYDOWN:
-        case WM_KEYUP:
-        {
-            //u32 VKCode = (u32)Message.wParam;
-            
-        }break;
-        default:
-        {
-//            OutputDebugStringA("default\n");
-            Result = DefWindowProcA(Window, Message, WParam, LParam);
-        } break;
-    }
-    return Result;
-}
-
-void HandleWindowsMessages(PlatformState* ps)
-{
-    MSG message;
-    while(PeekMessage(&message, nullptr, 0, 0, PM_REMOVE))
-    {
-        if(message.message == WM_QUIT)
-        {
-            ps->is_running = false;
-        }
-        TranslateMessage(&message);
-        DispatchMessageA(&message);
-    }
-}
-
-void SetSpriteNonVisible(void* node)
-{
-    FMJUINode* a = (FMJUINode*)node;
-    SpriteTrans* st = fmj_fixed_buffer_get_ptr(SpriteTrans,&ui_fixed_quad_buffer,a->st_id);    
-    st->sprite.is_visible = false;
-}
+//end draw nodes
 
 int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_line, int n_show_cmd )
 {
     printf("Starting Window...");
     PlatformState* ps = &gm.ps;
     ps->is_running  = true;
-//    GetSystemInfo(&platform_state->info.system_info);
-    
-    f2 dim = f2_create(1024,1024);
-    f2 p = f2_create(0,0);
 
-    Window *window = &ps->window;
-	window->dim = dim;
-    window->p = p;
-    //HINSTANCE HInstance = GetModuleHandle(NULL);
-    WNDCLASS WindowClass =  {};
+//WINDOWS SETUP
 
-    WindowClass.style = CS_HREDRAW|CS_VREDRAW|CS_OWNDC;
-    WindowClass.lpfnWndProc = MainWindowCallbackFunc;
-    WindowClass.hInstance = h_instance;
-    WindowClass.hCursor = LoadCursor(0, IDC_ARROW);
-    WindowClass.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
-    WindowClass.lpszClassName = "Chip8Class";    
-    
-    DWORD ErrorCode = GetLastError();
-    //ImGuiIO& io;
-    if(RegisterClass(&WindowClass))
+    if(!PlatformInit(ps,f2_create(1024,1024),f2_create_f(0),n_show_cmd))
     {
-        HWND created_window =
-            CreateWindowExA(
-                0,//WS_EX_TOPMOST|WS_EX_LAYERED,
-                WindowClass.lpszClassName,
-                "Chip8",
-                WS_OVERLAPPEDWINDOW,
-                window->p.x,
-                window->p.y,
-                window->dim.x,
-                window->dim.y,
-                0,
-                0,
-                h_instance,
-                0);
-        ErrorCode = GetLastError();
-        if(created_window)
-        {
-            window->handle = created_window;
-            WINSetScreenMode(ps,true);            
-            ShowWindow(created_window, n_show_cmd);
-        }
-        else
-        {
-            //TODO(Ray):Could not attain window gracefully let the user know and shut down.
-            //Could not start window.
-            MessageBox(NULL, "Window Creation Failed!", "Error!",
-                        MB_ICONEXCLAMATION | MB_OK);
-             return 0;
-        }
+        //Could not start or create window
+        ASSERT(false);
     }
-
-//time
-    LARGE_INTEGER li;
-    QueryPerformanceFrequency((LARGE_INTEGER*)&li);
-    ps->time.ticks_per_second = li.QuadPart;
-    QueryPerformanceCounter((LARGE_INTEGER*)&li);
-    ps->time.initial_ticks = li.QuadPart;
-    ps->time.prev_ticks = ps->time.initial_ticks;
-
-//keys
-    //TODO(Ray):Propery check for layouts
-    HKL layout =  LoadKeyboardLayout((LPCSTR)"00000409",0x00000001);
-    SHORT  code = VkKeyScanEx('s',layout);
-    keys.s = code;
-    code = VkKeyScanEx('w',layout);
-    keys.w = code;
-    code = VkKeyScanEx('a',layout);
-	keys.a = code;
-	code = VkKeyScanEx('e', layout);
-	keys.e = code;
-	code = VkKeyScanEx('r', layout);
-    keys.r = code;
-    code = VkKeyScanEx('d',layout);
-    keys.d = code;
-    code = VkKeyScanEx('f',layout);
-    keys.f = code;
-    code = VkKeyScanEx('i',layout);
-    keys.i = code;
-    code = VkKeyScanEx('j',layout);
-    keys.j = code;
-    code = VkKeyScanEx('k',layout);
-    keys.k = code;
-    code = VkKeyScanEx('l',layout);
-    keys.l = code;
-    keys.f1 = VK_F1;
-    keys.f2 = VK_F2;
-	keys.f3 = VK_F3;
-
+    
     //Lets init directx12
     CreateDeviceResult result = D12RendererCode::Init(&ps->window.handle,ps->window.dim);
     if (result.is_init)
     {
-        //Do some setup.
-        //device = result.device;
+        //Do some setup if needed
     }
     else
     {
-        MessageBoxA(NULL, "Could not initialize your graphics device!", "Error!",
-                    MB_ICONEXCLAMATION | MB_OK);
+        //Could not initialize graphics device.
+        ASSERT(false);
         return 0;
     }
+    ID3D12Device2* device = D12RendererCode::GetDevice();
     
     //init tables
-    asset_tables.materials = fmj_anycache_init(4096,sizeof(FMJRenderMaterial),sizeof(u64),true);                                  
-    asset_tables.sprites = fmj_stretch_buffer_init(1,sizeof(FMJSprite),8);
-    //NOTE(RAY):If we want to make this platform independendt we would just make a max size of all platofrms
-    //struct and put in this and get out the opaque pointer and cast it to what we need.
-    asset_tables.vertex_buffers = fmj_stretch_buffer_init(1,sizeof(D3D12_VERTEX_BUFFER_VIEW),8);    
-    asset_tables.geometries = fmj_anycache_init(4096,sizeof(FMJRenderGeometry),sizeof(u64),true);
+    InitAssetTables(&asset_tables);
 
     FMJStretchBuffer render_command_buffer = fmj_stretch_buffer_init(1,sizeof(FMJRenderCommand),8);
     FMJStretchBuffer matrix_buffer = fmj_stretch_buffer_init(1,sizeof(f4x4),8);
 
-    //Set up file api options.
-    ID3D12Device2* device = D12RendererCode::GetDevice();
-        
+    
     //Load a texture with all mip maps calculated
     //load texture to mem from disk
     LoadedTexture test_texture = get_loaded_image("test.png",4);
@@ -1004,9 +182,6 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     D12RendererCode::Texture2D(&koma_king_outer_4,current_tex_id++);    
     D12RendererCode::Texture2D(&koma_king_outer_5,current_tex_id++);
     
-    D12RendererCode::viewport = CD3DX12_VIEWPORT(0.0f, 0.0f,ps->window.dim.x, ps->window.dim.y);
-    D12RendererCode::sis_rect = CD3DX12_RECT(0, 0, LONG_MAX, LONG_MAX);
-
     FMJMemoryArena permanent_strings = fmj_arena_allocate(FMJMEGABYTES(1));
     FMJMemoryArena temp_strings = fmj_arena_allocate(FMJMEGABYTES(1));    
     FMJString base_path_to_data = fmj_string_create("../data/Desktop/",&permanent_strings);
@@ -1031,7 +206,6 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     SoundAssetCode::LoadBankSampleData();
     //SoundAssetCode::GetBus("bus:/bgmgroup");
     SoundAssetCode::GetEvent("event:/bgm",&bgm_soundclip);
-
     //end audio setup
 
     //BEGIN Setup physics stuff
@@ -1041,125 +215,11 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     scene = PhysicsCode::CreateScene(KomaFilterShader);
     GamePiecePhysicsCallback* e = new GamePiecePhysicsCallback();
     PhysicsCode::SetSceneCallback(&scene, e);
-    
     //END PHYSICS SETUP
- 
-     // Create the descriptor heap for the depth-stencil view.
-    D3D12_DESCRIPTOR_HEAP_DESC dsv_h_d = {};
-    dsv_h_d.NumDescriptors = 1;
-    dsv_h_d.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
-    dsv_h_d.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    HRESULT r = device->CreateDescriptorHeap(&dsv_h_d, IID_PPV_ARGS(&D12RendererCode::dsv_heap));
-    ASSERT(SUCCEEDED(r));
+
+    D12RendererCode::CreateDefaultRootSig();
+    D12RendererCode::CreateDefaultDepthStencilBuffer(ps->window.dim);
     
-    D3D12_FEATURE_DATA_ROOT_SIGNATURE feature_data = {};
-    feature_data.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
-    if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &feature_data, sizeof(feature_data))))
-    {
-        feature_data.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
-    }
-
-    // Allow input layout and deny unnecessary access to certain pipeline stages.
-    D3D12_ROOT_SIGNATURE_FLAGS root_sig_flags =
-        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
-        D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
-        D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
-        D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
-    //|D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS;
-
-    // create a descriptor range (descriptor table) and fill it out
-    // this is a range of descriptors inside a descriptor heap
-    D3D12_DESCRIPTOR_RANGE1  descriptorTableRanges[1];
-    descriptorTableRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    descriptorTableRanges[0].NumDescriptors = -1;//MAX_SRV_DESC_HEAP_COUNT; 
-    descriptorTableRanges[0].BaseShaderRegister = 0; 
-    descriptorTableRanges[0].RegisterSpace = 0;
-    descriptorTableRanges[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND; 
-    descriptorTableRanges[0].Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE;
-
-    // create a descriptor table
-    D3D12_ROOT_DESCRIPTOR_TABLE1 descriptorTable;
-    descriptorTable.NumDescriptorRanges = _countof(descriptorTableRanges);
-    descriptorTable.pDescriptorRanges = &descriptorTableRanges[0];
-
-    D3D12_ROOT_CONSTANTS rc_1 = {};
-    rc_1.RegisterSpace = 0;
-    rc_1.ShaderRegister = 0;
-    rc_1.Num32BitValues = 16;
-    
-    D3D12_ROOT_CONSTANTS rc_2 = {};
-    rc_2.RegisterSpace = 0;
-    rc_2.ShaderRegister = 1;
-    rc_2.Num32BitValues = 16;
-    
-    D3D12_ROOT_CONSTANTS rc_3 = {};
-    rc_3.RegisterSpace = 0;
-    rc_3.ShaderRegister = 2;
-    rc_3.Num32BitValues = 4;
-    
-    D3D12_ROOT_CONSTANTS rc_4 = {};
-    rc_4.RegisterSpace = 0;
-    rc_4.ShaderRegister = 0;
-    rc_4.Num32BitValues = 4;
-
-    D3D12_ROOT_PARAMETER1  root_params[5];
-    root_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    root_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-    root_params[0].Constants = rc_1;
-
-    // fill out the parameter for our descriptor table. Remember it's a good idea to sort parameters by frequency of change. Our constant
-    // buffer will be changed multiple times per frame, while our descriptor table will not be changed at all.
-    root_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    root_params[1].DescriptorTable = descriptorTable;
-    root_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-   
-    root_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    root_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-    root_params[2].Constants = rc_2;
-    
-    root_params[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    root_params[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-    root_params[3].Constants = rc_3;
-    
-    root_params[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    root_params[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-    root_params[4].Constants = rc_4;
-
-    D3D12_STATIC_SAMPLER_DESC vs;
-    vs.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
-    vs.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    vs.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    vs.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    vs.MipLODBias = 0.0f;
-    vs.MaxAnisotropy = 1;
-    vs.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
-    vs.MinLOD = 0;
-    vs.MaxLOD = D3D12_FLOAT32_MAX;
-    vs.ShaderRegister = 1;
-    vs.RegisterSpace = 0;
-    vs.ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-
-    D3D12_STATIC_SAMPLER_DESC tex_static_samplers[2];
-    tex_static_samplers[0] = vs;
-
-    D3D12_STATIC_SAMPLER_DESC ss;
-    ss.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
-    ss.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    ss.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    ss.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    ss.MipLODBias = 0.0f;
-    ss.MaxAnisotropy = 1;
-    ss.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
-    ss.MinLOD = 0;
-    ss.MaxLOD = D3D12_FLOAT32_MAX;
-    ss.ShaderRegister = 0;
-    ss.RegisterSpace = 0;
-    ss.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-    
-    tex_static_samplers[1] = ss;
-
-    D12RendererCode::root_sig = D12RendererCode::CreatRootSignature(root_params,_countof(root_params),tex_static_samplers,2,root_sig_flags);
-
     D3D12_INPUT_ELEMENT_DESC input_layout[] = {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         { "COLOR"   , 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -1197,38 +257,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     color_render_material.id = material_count;
     fmj_anycache_add_to_free_list(&asset_tables.materials,(void*)&material_count,&color_render_material);    
     material_count++;
-    
-    //Create the depth buffer
-    // TODO(Ray Garner): FLUSH
-    uint32_t width =  max(1, ps->window.dim.x);
-    uint32_t height = max(1, ps->window.dim.y);
-    D3D12_CLEAR_VALUE optimizedClearValue = {};
-    optimizedClearValue.Format = DXGI_FORMAT_D32_FLOAT;
-    optimizedClearValue.DepthStencil = { 1.0f, 0 };
-    device->CreateCommittedResource(
-        &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-        D3D12_HEAP_FLAG_NONE,
-        &CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_D32_FLOAT, width, height,
-                                      1, 0, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL),
-        D3D12_RESOURCE_STATE_DEPTH_WRITE,
-        &optimizedClearValue,
-        IID_PPV_ARGS(&D12RendererCode::depth_buffer)
-        );
-    
-    // Update the depth-stencil view.
-    D3D12_DEPTH_STENCIL_VIEW_DESC dsv = {};
-    dsv.Format = DXGI_FORMAT_D32_FLOAT;
-    dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
-    dsv.Texture2D.MipSlice = 0;
-    dsv.Flags = D3D12_DSV_FLAG_NONE;
-    device->CreateDepthStencilView(D12RendererCode::depth_buffer, &dsv,
-                                   D12RendererCode::dsv_heap->GetCPUDescriptorHandleForHeapStart());
 
-    //Descriptor heap for our resources
-    //create the descriptor heap that will store our srv
-    //ID3D12DescriptorHeap* test_desc_heap;
-    // = D12RendererCode::CreateDescriptorHeap(2,D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE);
-    
+    //Camera setup
     RenderCamera rc = {};
     rc.ot.p = f3_create(0,0,0);
     rc.ot.r = f3_axis_angle(f3_create(0,0,1),0);
@@ -1253,7 +283,9 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     
     u64 screen_space_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,(void*)&rc_ui.projection_matrix);
     u64 identity_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,(void*)&rc_ui.matrix);
-    
+//end camera setup
+
+    //some memory setup
     u64 quad_mem_size = SIZE_OF_SPRITE_IN_BYTES * 100;
     u64 matrix_mem_size = (sizeof(f32) * 16) * 100;    
     GPUArena quad_gpu_arena = D12RendererCode::AllocateStaticGPUArena(quad_mem_size);
@@ -1263,7 +295,9 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     FMJFixedBuffer fixed_quad_buffer = fmj_fixed_buffer_init(200,sizeof(SpriteTrans),8);
     ui_fixed_quad_buffer = fmj_fixed_buffer_init(200,sizeof(SpriteTrans),8);    
     FMJFixedBuffer matrix_quad_buffer = fmj_fixed_buffer_init(200,sizeof(f4x4),0);
-    
+//end memory setup
+
+//ui definition    
     FMJSpriteBatch sb = {0};
     FMJSpriteBatch sb_ui = {0};
     sb.arena = fmj_arena_allocate(quad_mem_size);
@@ -1317,8 +351,9 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     
     u64 ping_ui_id = fmj_stretch_buffer_push(&bkg_child.children,&title_child);
     u64 bkg_ui_id = fmj_stretch_buffer_push(&base_node.children,&bkg_child);    
-
-//pieces/komas
+//end ui definition
+    
+//game object setup pieces/komas
     komas = fmj_stretch_buffer_init(1,sizeof(Koma),8);
     
     FMJSprite base_koma_sprite_2 = add_sprite_to_stretch_buffer(&asset_tables.sprites,base_render_material.id,2,uvs,white,true);
@@ -1514,10 +549,14 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         PhysicsCode::AddActorToScene(scene, rbd);
         PhysicsCode::DisableGravity((PxActor*)rbd.state,true);
     }
-    
+//end game object setup
+
+    //ui  evaulation
     fmj_ui_evaluate_node(&base_node,&ui_state.hot_node_state);
     fmj_ui_commit_nodes_for_drawing(&sb_ui.arena,base_node,&ui_fixed_quad_buffer,white,uvs);
+//end ui evaulation
 
+    //upload data to gpu
     D12RendererCode::SetArenaToVertexBufferView(&quad_gpu_arena,quad_mem_size,stride);
     D12RendererCode::SetArenaToVertexBufferView(&ui_quad_gpu_arena,quad_mem_size,stride);    
     FMJRenderGeometry geo  = {0};
@@ -1536,11 +575,16 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     D12RendererCode::SetArenaToConstantBuffer(&matrix_gpu_arena,4);
     void* mapped_matrix_data;
     matrix_gpu_arena.resource->Map(0,NULL,&mapped_matrix_data);
+
+
     
 #if 1
     quad_gpu_arena.resource->SetName(L"QUADS_GPU_ARENA");
     ui_quad_gpu_arena.resource->SetName(L"UI_QUADS_GPU_ARENA");    
 #endif
+//end up load data to gpu
+
+    //game global vars
     u32 tex_index = 0;
     f32 angle = 0;    
     f2 cam_pitch_yaw = f2_create(0.0f,0.0f);
@@ -1550,15 +594,19 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     u32 tex_id;
     f32 size_sin = 0;
     game_state.current_player_id = 0;
-    
+    //end game global  vars
+
+    //game loop
     while(ps->is_running)
     {
-//Get input
+//pull this frames info from devices//api
         PullDigitalButtons(ps);
         PullMouseState(ps);
         PullGamePads(ps);
         PullTimeState(ps);
-//Game stuff happens 
+//End pull
+        
+//Game Code 
         if(ps->input.keyboard.keys[keys.s].down)
         {
             ps->is_running = false;
@@ -1801,6 +849,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         }
         
         SoundCode::ContinousPlay(&bgm_soundclip);
+
+        
 //Render camera stated etc..  is finalized        
  //Free cam
 #if 0
@@ -1814,7 +864,10 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         f4x4* rc_mat = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,rc_matrix_id);
         *rc_mat = rc.matrix;
         fmj_stretch_buffer_check_in(&matrix_buffer);
-        
+//End game code
+
+
+//Render command creation(Render pass setup)
         for(int i = 0;i < fixed_quad_buffer.count;++i)
         {
             FMJRenderCommand com = {};
@@ -1850,11 +903,10 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                 fmj_stretch_buffer_push(&render_command_buffer,(void*)&com);
             }
         }
+//Render command setup end
         
-//Render commands are issued to the api
 
-        //Render API CODE
-
+//Render commands issued to the render api
         bool has_update = false;
 
         if(render_command_buffer.fixed.count > 0)
@@ -1910,9 +962,11 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         D12RendererCode::EndFrame();
 
         fmj_stretch_buffer_clear(&render_command_buffer);
-//Handle windows message and do it again.
+//END Render commands issued to the render api        
+
         PhysicsCode::Update(&scene,1,ps->time.delta_seconds);                
         SoundCode::Update();
+
         HandleWindowsMessages(ps);        
     }
     return 0;

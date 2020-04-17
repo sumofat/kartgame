@@ -397,8 +397,6 @@ namespace D12RendererCode
     ID3D12DescriptorHeap* dsv_heap;
     ID3D12RootSignature* root_sig;
     D3D12_VERTEX_BUFFER_VIEW buffer_view;
-    D3D12_VIEWPORT  viewport;
-    D3D12_RECT sis_rect;
     
     IDXGIAdapter4* dxgiAdapter4;
     
@@ -496,6 +494,155 @@ namespace D12RendererCode
         return result;
     }
 
+    void CreateDefaultDepthStencilBuffer(f2 dim)
+    {
+        //Create the depth buffer
+        // TODO(Ray Garner): FLUSH
+        uint32_t width =  max(1, dim.x);
+        uint32_t height = max(1, dim.y);
+        D3D12_CLEAR_VALUE optimizedClearValue = {};
+        optimizedClearValue.Format = DXGI_FORMAT_D32_FLOAT;
+        optimizedClearValue.DepthStencil = { 1.0f, 0 };
+        device->CreateCommittedResource(
+            &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+            D3D12_HEAP_FLAG_NONE,
+            &CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_D32_FLOAT, width, height,
+                                          1, 0, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL),
+            D3D12_RESOURCE_STATE_DEPTH_WRITE,
+            &optimizedClearValue,
+            IID_PPV_ARGS(&D12RendererCode::depth_buffer)
+                                        );
+    
+        // Update the depth-stencil view.
+        D3D12_DEPTH_STENCIL_VIEW_DESC dsv = {};
+        dsv.Format = DXGI_FORMAT_D32_FLOAT;
+        dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+        dsv.Texture2D.MipSlice = 0;
+        dsv.Flags = D3D12_DSV_FLAG_NONE;
+        device->CreateDepthStencilView(D12RendererCode::depth_buffer, &dsv,
+                                       D12RendererCode::dsv_heap->GetCPUDescriptorHandleForHeapStart());    
+    }
+    
+    void CreateDefaultRootSig()
+    {
+        // Create the descriptor heap for the depth-stencil view.
+        D3D12_DESCRIPTOR_HEAP_DESC dsv_h_d = {};
+        dsv_h_d.NumDescriptors = 1;
+        dsv_h_d.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+        dsv_h_d.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+        HRESULT r = device->CreateDescriptorHeap(&dsv_h_d, IID_PPV_ARGS(&D12RendererCode::dsv_heap));
+        ASSERT(SUCCEEDED(r));
+    
+        D3D12_FEATURE_DATA_ROOT_SIGNATURE feature_data = {};
+        feature_data.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
+        if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &feature_data, sizeof(feature_data))))
+        {
+            feature_data.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
+        }
+
+        // Allow input layout and deny unnecessary access to certain pipeline stages.
+        D3D12_ROOT_SIGNATURE_FLAGS root_sig_flags =
+            D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
+            D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
+            D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
+            D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
+        //|D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS;
+
+        // create a descriptor range (descriptor table) and fill it out
+        // this is a range of descriptors inside a descriptor heap
+        D3D12_DESCRIPTOR_RANGE1  descriptorTableRanges[1];
+        descriptorTableRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        descriptorTableRanges[0].NumDescriptors = -1;//MAX_SRV_DESC_HEAP_COUNT; 
+        descriptorTableRanges[0].BaseShaderRegister = 0; 
+        descriptorTableRanges[0].RegisterSpace = 0;
+        descriptorTableRanges[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND; 
+        descriptorTableRanges[0].Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE;
+
+        // create a descriptor table
+        D3D12_ROOT_DESCRIPTOR_TABLE1 descriptorTable;
+        descriptorTable.NumDescriptorRanges = _countof(descriptorTableRanges);
+        descriptorTable.pDescriptorRanges = &descriptorTableRanges[0];
+
+        D3D12_ROOT_CONSTANTS rc_1 = {};
+        rc_1.RegisterSpace = 0;
+        rc_1.ShaderRegister = 0;
+        rc_1.Num32BitValues = 16;
+    
+        D3D12_ROOT_CONSTANTS rc_2 = {};
+        rc_2.RegisterSpace = 0;
+        rc_2.ShaderRegister = 1;
+        rc_2.Num32BitValues = 16;
+    
+        D3D12_ROOT_CONSTANTS rc_3 = {};
+        rc_3.RegisterSpace = 0;
+        rc_3.ShaderRegister = 2;
+        rc_3.Num32BitValues = 4;
+    
+        D3D12_ROOT_CONSTANTS rc_4 = {};
+        rc_4.RegisterSpace = 0;
+        rc_4.ShaderRegister = 0;
+        rc_4.Num32BitValues = 4;
+
+        D3D12_ROOT_PARAMETER1  root_params[5];
+        root_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        root_params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+        root_params[0].Constants = rc_1;
+
+        // fill out the parameter for our descriptor table. Remember it's a good idea to sort parameters by frequency of change. Our constant
+        // buffer will be changed multiple times per frame, while our descriptor table will not be changed at all.
+        root_params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        root_params[1].DescriptorTable = descriptorTable;
+        root_params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+   
+        root_params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        root_params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+        root_params[2].Constants = rc_2;
+    
+        root_params[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        root_params[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+        root_params[3].Constants = rc_3;
+    
+        root_params[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        root_params[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+        root_params[4].Constants = rc_4;
+
+        D3D12_STATIC_SAMPLER_DESC vs;
+        vs.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+        vs.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        vs.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        vs.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        vs.MipLODBias = 0.0f;
+        vs.MaxAnisotropy = 1;
+        vs.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+        vs.MinLOD = 0;
+        vs.MaxLOD = D3D12_FLOAT32_MAX;
+        vs.ShaderRegister = 1;
+        vs.RegisterSpace = 0;
+        vs.ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+
+        D3D12_STATIC_SAMPLER_DESC tex_static_samplers[2];
+        tex_static_samplers[0] = vs;
+
+        D3D12_STATIC_SAMPLER_DESC ss;
+        ss.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+        ss.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        ss.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        ss.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        ss.MipLODBias = 0.0f;
+        ss.MaxAnisotropy = 1;
+        ss.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+        ss.MinLOD = 0;
+        ss.MaxLOD = D3D12_FLOAT32_MAX;
+        ss.ShaderRegister = 0;
+        ss.RegisterSpace = 0;
+        ss.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    
+        tex_static_samplers[1] = ss;
+
+        D12RendererCode::root_sig = D12RendererCode::CreatRootSignature(root_params,_countof(root_params),tex_static_samplers,2,root_sig_flags);
+
+    }
+    
     PipelineStateStream CreateDefaultPipelineStateStreamDesc(D3D12_INPUT_ELEMENT_DESC* input_layout,int input_layout_count,ID3DBlob* vs_blob,ID3DBlob* fs_blob)
     {
         PipelineStateStream ppss = {}; 
