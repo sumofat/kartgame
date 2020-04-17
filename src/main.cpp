@@ -107,7 +107,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     ID3D12Device2* device = D12RendererCode::GetDevice();
     
     //init tables
-    InitAssetTables(&asset_tables);
+    fmj_asset_init(&asset_tables);
 
     FMJStretchBuffer render_command_buffer = fmj_stretch_buffer_init(1,sizeof(FMJRenderCommand),8);
     FMJStretchBuffer matrix_buffer = fmj_stretch_buffer_init(1,sizeof(f4x4),8);
@@ -267,13 +267,15 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     f32 aspect_ratio = ps->window.dim.x / ps->window.dim.y;
     f2 size = f2_create_f(300);
     size.x = size.x * aspect_ratio;
-    rc.projection_matrix = init_ortho_proj_matrix(size,0.0f,1.0f);
-    
+//    rc.projection_matrix = init_ortho_proj_matrix(size,0.0f,1.0f);
     rc.fov = 80;
-    rc.near_far_planes = f2_create(0,1);
+    rc.near_far_planes = f2_create(0.1,1000);
+    rc.projection_matrix = init_pers_proj_matrix(ps->window.dim,rc.fov,rc.near_far_planes);
     rc.matrix = f4x4_identity();
+    
     u64 ortho_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,(void*)&rc.projection_matrix);
     u64 rc_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,(void*)&rc.matrix);
+    
     RenderCamera rc_ui = {};
     rc_ui.ot.p = f3_create(0,0,0);
     rc_ui.ot.r = f3_axis_angle(f3_create(0,0,1),0);
@@ -287,7 +289,9 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 
     //some memory setup
     u64 quad_mem_size = SIZE_OF_SPRITE_IN_BYTES * 100;
-    u64 matrix_mem_size = (sizeof(f32) * 16) * 100;    
+    u64 matrix_mem_size = (sizeof(f32) * 16) * 100;
+    GPUArena kart_gpu_arena = D12RendererCode::AllocateStaticGPUArena(quad_mem_size);
+    
     GPUArena quad_gpu_arena = D12RendererCode::AllocateStaticGPUArena(quad_mem_size);
     GPUArena ui_quad_gpu_arena = D12RendererCode::AllocateStaticGPUArena(quad_mem_size);    
     GPUArena matrix_gpu_arena = D12RendererCode::AllocateGPUArena(matrix_mem_size);
@@ -297,7 +301,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     FMJFixedBuffer matrix_quad_buffer = fmj_fixed_buffer_init(200,sizeof(f4x4),0);
 //end memory setup
 
-//ui definition    
+//TITLE ui definition    
     FMJSpriteBatch sb = {0};
     FMJSpriteBatch sb_ui = {0};
     sb.arena = fmj_arena_allocate(quad_mem_size);
@@ -354,39 +358,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 //end ui definition
     
 //game object setup pieces/komas
-    komas = fmj_stretch_buffer_init(1,sizeof(Koma),8);
-    
-    FMJSprite base_koma_sprite_2 = add_sprite_to_stretch_buffer(&asset_tables.sprites,base_render_material.id,2,uvs,white,true);
-    FMJSprite koma_sprite_outer_3 = add_sprite_to_stretch_buffer(&asset_tables.sprites,base_render_material.id,rook_tex_id_range.y,uvs,white,true);
-
-    FMJSprite pawn_sprite = add_sprite_to_stretch_buffer(&asset_tables.sprites,base_render_material.id,pawn_tex_id_range.x,uvs,white,true);
-    FMJSprite pawn_sprite_outer_2 = add_sprite_to_stretch_buffer(&asset_tables.sprites,base_render_material.id,pawn_tex_id_range.y,uvs,white,true);
-
-    FMJSprite queen_sprite = add_sprite_to_stretch_buffer(&asset_tables.sprites,base_render_material.id,queen_tex_id_range.x,uvs,white,true);
-    FMJSprite queen_sprite_outer_6 = add_sprite_to_stretch_buffer(&asset_tables.sprites,base_render_material.id,queen_tex_id_range.y,uvs,white,true);
-
-    FMJSprite king_sprite = add_sprite_to_stretch_buffer(&asset_tables.sprites,base_render_material.id,king_tex_id_range.x,uvs,white,true);
-    FMJSprite king_sprite_outer_5 = add_sprite_to_stretch_buffer(&asset_tables.sprites,base_render_material.id,king_tex_id_range.y,uvs,white,true);
-    
-    FMJSprite circle_sprite = fmj_sprite_init(8,uvs,white,true);
-    FMJSprite line_sprite = fmj_sprite_init(9,uvs,white,true);
-    FMJSprite court_sprite = fmj_sprite_init(0,uvs,white,true);        
-    circle_sprite.material_id = base_render_material.id;
-    line_sprite.material_id = base_render_material.id;
-    court_sprite.material_id = color_render_material.id;
-
-    u64 circle_sprite_id = fmj_stretch_buffer_push(&asset_tables.sprites,(void*)&circle_sprite);
-    u64 line_sprite_id   = fmj_stretch_buffer_push(&asset_tables.sprites,(void*)&line_sprite);
-    u64 court_sprite_id   = fmj_stretch_buffer_push(&asset_tables.sprites,(void*)&court_sprite);    
 
     quaternion def_r = f3_axis_angle(f3_create(0,0,1),0);
-    f32 court_size_y = 500;
-    f32 court_size_x = line.dim.x;
-    
-    u64  court_id = sprite_trans_create(f3_create_f(0),f3_create(line.dim.x,court_size_y,1),def_r,white,court_sprite,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
-//    u64  court_id = sprite_trans_create(f3_create_f(0),f3_create(100,100,1),def_r,white,court_sprite_id,&matrix_buffer,&fixed_quad_buffer,&sb.arena);        
-    u64  circle_id = sprite_trans_create(f3_create_f(0),f3_create(court_size_x*0.8f,court_size_x*0.8f,1),def_r,white,circle_sprite,&matrix_buffer,&fixed_quad_buffer,&sb.arena);    
-    u64  line_id = sprite_trans_create(f3_create_f(0),f3_create(line.dim.x,line.dim.y,1),def_r,white,line_sprite,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
 
     f2  top_right_screen_xy = f2_create(ps->window.dim.x,ps->window.dim.y);
     f2  bottom_left_xy = f2_create(0,0);
@@ -394,161 +367,19 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     f3 max_screen_p = f3_screen_to_world_point(rc.projection_matrix,rc.matrix,ps->window.dim,top_right_screen_xy,0);
     f3 lower_screen_p = f3_screen_to_world_point(rc.projection_matrix,rc.matrix,ps->window.dim,bottom_left_xy,0);
 
-    f32 half_court_x =  (f32)line.dim.x / 2.0f;
-    f32 half_court_y = court_size_y / 2.0f;
-    f32 court_slot_x = court_size_x / 6.0f;
-
-    f32 x_offset = 0;
-    u64 rot_test_st_id;
-
-    f3 koma_bottom_left = f3_create(-half_court_x + court_slot_x,-half_court_y + court_slot_x,0);
-    f3 koma_top_right = f3_create(-half_court_x + court_slot_x,half_court_y - court_slot_x,0);        
-    f3 start_pos = f3_create_f(0);
-    f3 current_pos = f3_create(0,0,-5);
-    u32 player_id = 0;
-    for(int o = 0;o < 2;++o)
+    //test gltlf aquisition
+    FMJAssetContext asset_ctx = {};
+    asset_ctx.perm_mem = &permanent_strings;
+    asset_ctx.temp_mem = &temp_strings;    
+    FMJAssetModel test_model = fmj_asset_model_create(&asset_ctx);
+    if(!fmj_asset_load_model_from_glb(&asset_ctx,"../data/models/box.glb",&test_model,color_render_material.id))
     {
-        if(o == 0)
-        {
-            start_pos = koma_bottom_left;            
-        }
-        else
-        {
-            player_id = 1;
-            def_r = f3_axis_angle(f3_create(0,0,1),180);
-            start_pos = koma_top_right;            
-        }
-
-        f3 current_pos = start_pos;
-        for(int i = 0;i < 10;++i)
-        {
-            f32 base_scale = 38;
-            f32 scale_mul = 1.0f;
-            f3 next_p = current_pos;        
-            Koma k = {0};
-            
-            FMJSprite inner_sprite;
-            FMJSprite outer_sprite;
-            k.team_id = i;
-            k.player_id = player_id;
-            if(i > 4)//pawns
-            {
-                inner_sprite = pawn_sprite;
-                outer_sprite = pawn_sprite_outer_2;
-                k.atk_pow = 1;
-                k.max_hp = 2;
-                k.hp = k.max_hp;
-                k.type = koma_type_pawn;
-            }
-            else if(i == 1 || i == 3)//queen
-            {
-                inner_sprite = queen_sprite;
-                outer_sprite = queen_sprite_outer_6;
-                scale_mul = 1.3f;
-                k.atk_pow = 1;
-                k.max_hp = 6;
-                k.hp = k.max_hp;
-                k.type = koma_type_queen;
-            }
-            else if(i == 2)//king
-            {
-                inner_sprite = king_sprite;
-                outer_sprite = king_sprite_outer_5;
-                scale_mul = 1.0f;
-                k.atk_pow = 1;
-                k.max_hp = 5;
-                k.hp = k.max_hp;
-                k.type = koma_type_king;
-            }
-            else if(i == 0 || i == 4)//rooks
-            {
-                inner_sprite = base_koma_sprite_2;
-                outer_sprite = koma_sprite_outer_3;
-                k.atk_pow = 2;
-                k.max_hp = 3;
-                k.hp = k.max_hp;
-                k.type = koma_type_rook;
-            }
-            else
-            {
-                ASSERT(false);
-            }
-            
-            f32 scale = base_scale * scale_mul;
-            u64  inner_id = sprite_trans_create(next_p,f3_create(scale,scale,1),def_r,white,inner_sprite,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
-            k.inner_id = inner_id;
-
-            base_scale += 8;
-            scale = base_scale * scale_mul;
-            u64  outer_id = sprite_trans_create(next_p,f3_create(scale,scale,1),def_r,white,outer_sprite,&matrix_buffer,&fixed_quad_buffer,&sb.arena);
-            k.outer_id = outer_id;
-
-//        filterData.word0 = k.type; // word0 = own ID
-//        filterData.word1 = 0xFF;  // word1 = ID mask to filter pairs that trigger a
-            PhysicsShapeSphere sphere_shape = PhysicsCode::CreateSphere(scale/2,physics_material);
-            PhysicsCode::SetSimulationFilterData(((PxShape*)sphere_shape.shape),k.type,0xFF);
-            
-            RigidBody rbd = PhysicsCode::CreateDynamicRigidbody(next_p, sphere_shape.shape, false);
-
-            PhysicsCode::AddActorToScene(scene, rbd);
-            PhysicsCode::DisableGravity((PxActor*)rbd.state,true);
-            k.rigid_body = rbd;
-            PhysicsCode::UpdateRigidBodyMassAndInertia(k.rigid_body,1);
-            PhysicsCode::SetMass(k.rigid_body,1);
-
-            // contact callback;
-            u64 koma_index = fmj_stretch_buffer_push(&komas,(void*)&k);
-            u64* kpp = (u64*)koma_index;
-            PhysicsCode::SetRigidBodyUserData(rbd,kpp);            
-
-            PhysicsCode::SetRigidDynamicLockFlag(rbd,PxRigidDynamicLockFlag::eLOCK_LINEAR_Z,true);
-//            PhysicsCode::LockRigidRotation(rbd);
-
-            if(0 == (i + 1) % 5)
-            {
-                if(o == 0)
-                    current_pos = f3_add(current_pos,f3_create(0,court_slot_x,0));
-                else
-                    current_pos = f3_sub(current_pos,f3_create(0,court_slot_x,0));
-            
-                current_pos = f3_create(start_pos.x,current_pos.y,0);
-            }
-            else
-            {
-                current_pos = f3_add(current_pos,f3_create(court_slot_x,0,0));
-            }        
-        }
-    }    
-
-//create court bounds physics
-    for(int i = 0;i < 4;++i)
-    {
-        f32 scale = 19;
-        f3 box_size;
-        f3 next_p; 
-        //right left boxes
-        if(i % 2 == 0)
-        {
-            box_size = f3_create(1.0f,court_size_y + 1,scale);
-            if(i == 0)//left
-                next_p =  f3_create(-(court_size_x / 2.0f),0,0);
-            if(i == 2)//right
-                next_p =  f3_create((court_size_x / 2.0f),0,0);
-        }
-        else //top bottom
-        {
-            box_size = f3_create(court_size_x + 1.0f,1.0f,scale);
-            if(i == 1)//top
-                next_p =  f3_create(0,-(court_size_y / 2.0f),0);
-            if(i == 3)//bottom
-                next_p =  f3_create(0,(court_size_y / 2.0f),0);
-        }
-
-        PhysicsShapeBox box_shape = PhysicsCode::CreateBox(box_size,physics_material);
-        RigidBody rbd = PhysicsCode::CreateStaticRigidbody(next_p, box_shape.shape);
-        PhysicsCode::AddActorToScene(scene, rbd);
-        PhysicsCode::DisableGravity((PxActor*)rbd.state,true);
+        //Could not aquire model stop for now.
+        ASSERT(false);
     }
+
+    fmj_asset_upload_model(&asset_tables,&asset_ctx,&test_model);
+
 //end game object setup
 
     //ui  evaulation
@@ -559,14 +390,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     //upload data to gpu
     D12RendererCode::SetArenaToVertexBufferView(&quad_gpu_arena,quad_mem_size,stride);
     D12RendererCode::SetArenaToVertexBufferView(&ui_quad_gpu_arena,quad_mem_size,stride);    
-    FMJRenderGeometry geo  = {0};
-    geo.id = fmj_stretch_buffer_push(&asset_tables.vertex_buffers,(void*)&quad_gpu_arena.buffer_view);    
-
-    FMJRenderGeometry ui_geo  = {0};    
-    ui_geo.id = fmj_stretch_buffer_push(&asset_tables.vertex_buffers,(void*)&ui_quad_gpu_arena.buffer_view);
-
-    fmj_anycache_add_to_free_list(&asset_tables.geometries,(void*)&geo.id,(void*)&geo);
-    fmj_anycache_add_to_free_list(&asset_tables.geometries,(void*)&ui_geo.id,(void*)&ui_geo);
+    u64 sprite_buffer_id = fmj_stretch_buffer_push(&asset_tables.vertex_buffers,(void*)&quad_gpu_arena.buffer_view);    
+    u64 ui_sprite_buffer_id = fmj_stretch_buffer_push(&asset_tables.vertex_buffers,(void*)&ui_quad_gpu_arena.buffer_view);
 
     D12RendererCode::UploadBufferData(&quad_gpu_arena,sb.arena.base,quad_mem_size);    
     D12RendererCode::UploadBufferData(&ui_quad_gpu_arena,sb_ui.arena.base,quad_mem_size);
@@ -575,8 +400,6 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     D12RendererCode::SetArenaToConstantBuffer(&matrix_gpu_arena,4);
     void* mapped_matrix_data;
     matrix_gpu_arena.resource->Map(0,NULL,&mapped_matrix_data);
-
-
     
 #if 1
     quad_gpu_arena.resource->SetName(L"QUADS_GPU_ARENA");
@@ -612,9 +435,16 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             ps->is_running = false;
         }
 
+        //stop showing title  after mouse button is pressed
+        if(ps->input.mouse.lmb.released)
+        {
+            show_title = false;
+            fmj_ui_evaluate_on_node_recursively(&base_node,SetSpriteNonVisible);
+        }
+        
+        //modify camera matrix
         f4x4* p_mat_ = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,ortho_matrix_id);
 #if 0
-
         size.x = abs(sin(size_sin)) * 300;
         size.y = abs(cos(size_sin)) * 300;
         
@@ -624,233 +454,13 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         fmj_stretch_buffer_check_in(&matrix_buffer);
         size_sin += 0.001f;        
         *p_mat_ = init_ortho_proj_matrix(size,0.0f,1.0f);
-
 #endif
         f4x4 p_mat = *p_mat_;
         p_mat_ = nullptr;
         fmj_stretch_buffer_check_in(&matrix_buffer);
-        
-        if(ps->input.mouse.lmb.down && !game_state.is_phyics_active)
-        {
-            //Begin the pull
-            finger_pull.pull_begin = true;
-            if(!finger_pull.koma)
-            {
-                //find the hovered unit
-                PxScene* cs = scene.state;
-                f3 origin_3 = f3_screen_to_world_point(p_mat,rc.matrix,ps->window.dim,ps->input.mouse.p,0);                
-                PxVec3 origin = PxVec3(origin_3.x,origin_3.y,origin_3.z);
-                //PxVec3 origin = PxVec3(ps->input.mouse.p.x,ps->input.mouse.p.y,0);
-                f3 unit_dir_ = f3_create(0,0,-1);
-                PxVec3 unitDir = PxVec3(unit_dir_.x,unit_dir_.y,unit_dir_.z);
-                PxReal maxDistance = 5.0f;                // [in] Raycast max distance
-                PxRaycastBuffer hit;                      // [out] Raycast results
-                // Raycast against all static & dynamic objects (no filtering)
-                // The main result from this call is the closest hit, stored in the 'hit.block' structure
-                bool status = cs->raycast(origin, unitDir, maxDistance, hit);
-                if(status)
-                {
-                    for(int i = 0;i < komas.fixed.count;++i)
-                    {
-                        Koma* koma = fmj_stretch_buffer_check_out(Koma,&komas,i);
-                        //For each piece check inside sphere radius if start touch is in side piece radius
-//                        Koma* gp = &GamePieceCode::game_pieces[i];
-                        if( hit.block.actor == koma->rigid_body.state && koma->hp > 0)
-                        {
-                            finger_pull.koma = koma;
-                            finger_pull.start_pull_p = ps->input.mouse.p;
-                            break;
-                        }
-                        //set gp
-                        fmj_stretch_buffer_check_in(&komas);
-                    }
-                }
-            }
-            //if no unit hovered ignore pull
-            //else show pull graphic over piece
-        }
-        else
-        {
-            if(finger_pull.pull_begin)
-            {
-                finger_pull.end_pull_p  = ps->input.mouse.p;
-                if(!CheckValidFingerPull(&finger_pull) || !finger_pull.koma || finger_pull.koma->player_id != game_state.current_player_id)
-                {
-                    finger_pull.pull_begin = false;
-                    finger_pull.koma = nullptr;
-                    finger_pull.start_pull_p = f2_create(0,0);
-                    finger_pull.end_pull_p = f2_create(0,0);
-                    finger_pull.pull_begin = false;                    
-                }
-                
-                else if(finger_pull.pull_begin && finger_pull.koma)
-                {
-                    //Pull was valid
-                    f32 max_pull_length  = 20;
-                    finger_pull.koma->action_type = koma_action_type_attack;
-                    f2 pull_dif = f2_sub(finger_pull.end_pull_p,finger_pull.start_pull_p);
-                    f3 flick_dir = f3_create(pull_dif.x,pull_dif.y,0);
-                    f32 flick_dir_length = fmin(f3_length(flick_dir),max_pull_length);
-                    flick_dir = f3_normalize(f3_create(flick_dir.x,flick_dir.y,0));
-                    f32  scale_down_speed = 12.0f;
-                    f32 flick_speed = flick_dir_length * finger_pull.koma->max_speed * scale_down_speed;
-                    flick_dir = f3_mul_s(flick_dir,flick_speed);
-                    PxVec3 pulldirpx3 = PxVec3(flick_dir.x,flick_dir.y,flick_dir.z);
-                    
-//                    ((PxRigidDynamic*)finger_pull.koma->rigid_body.state)->setLinearVelocity(pulldirpx3);
-                    ((PxRigidDynamic*)finger_pull.koma->rigid_body.state)->addForce(pulldirpx3,	PxForceMode::Enum::eVELOCITY_CHANGE);
+//end render camera modify
 
-                    game_state.flicked_koma = finger_pull.koma;
-                    finger_pull.koma = nullptr;
-                    finger_pull.start_pull_p = f2_create(0,0);
-                    finger_pull.end_pull_p = f2_create(0,0);
-                    finger_pull.pull_begin = false;                    
-                }
-                
-                else
-                {
-                    finger_pull.koma = nullptr;
-                    finger_pull.start_pull_p = f2_create(0,0);
-                    finger_pull.end_pull_p = f2_create(0,0);
-                    finger_pull.pull_begin = false;
-                }
-            }
-        }
-
-        //Updte our Koma game pieces on moving bodies
-        f32 komas_total_linear_velocity = 0.0f;        
-        for(int i = 0;i < komas.fixed.count;++i)
-        {
-            Koma* k = fmj_stretch_buffer_check_out(Koma,&komas,i);
-            
-            if(k->action_type != koma_action_type_attack)
-            {
-                PhysicsCode::LockRigidPosition(k->rigid_body);                
-            }
-            else
-            {
-                PhysicsCode::UnlockRigidPosition(k->rigid_body);
-            }
-
-            PxVec3 lv = ((PxRigidDynamic*)k->rigid_body.state)->getLinearVelocity();
-            
-            f32 koma_vel_len = f3_length(f3_create(lv.x,lv.y,lv.z));
-
-            komas_total_linear_velocity += koma_vel_len;            
-            lv *= ground_friction;
-            if(k->hp > 0)
-                ((PxRigidDynamic*)k->rigid_body.state)->addForce(-lv,	PxForceMode::Enum::eIMPULSE);
-//                ((PxRigidDynamic*)k->rigid_body.state)->setLinearVelocity(lv);
-            
-            u64 outer_sprite_id;
-            u32 j = k->team_id;
-            u32 t_id;
-            f32 rook_max_speed = 30.0f;
-            f32 pawn_max_speed = 20.0f;
-            f32 queen_max_speed = 38.0f;
-            f32 king_max_speed = 10.0f;
-//            f32 base_friction = ground_friction;
-            
-            if(j > 4)//pawn
-            {
-                u32 start = k->hp + pawn_tex_id_range.x;
-                t_id = clamp(start,pawn_tex_id_range.x + 1,pawn_tex_id_range.y);
-                k->max_speed = pawn_max_speed;
-            }
-            else if(j == 1 || j == 3)//queen
-            {
-                u32 start = k->hp + queen_tex_id_range.x;
-                t_id = clamp(start,queen_tex_id_range.x + 1,queen_tex_id_range.y);
-                k->max_speed = queen_max_speed;
-            }
-            else if(j == 2)//king
-            {
-                u32 start = k->hp + king_tex_id_range.x;
-                t_id = clamp(start,king_tex_id_range.x + 1,king_tex_id_range.y);
-                k->max_speed = king_max_speed;
-            }
-            else if(j == 0 || j == 4)
-            {
-                u32 start = k->hp + rook_tex_id_range.x;
-                t_id = clamp(start,rook_tex_id_range.x + 1,rook_tex_id_range.y);
-                k->max_speed = rook_max_speed;
-            }
-            else
-            {
-                ASSERT(false);
-            }
-            
-            outer_sprite_id = t_id;            
-
-            SpriteTrans* inner_koma_st = fmj_fixed_buffer_get_ptr(SpriteTrans,&fixed_quad_buffer,k->inner_id);
-            SpriteTrans* outer_koma_st = fmj_fixed_buffer_get_ptr(SpriteTrans,&fixed_quad_buffer,k->outer_id);
-            FMJ3DTrans  new_trans =  inner_koma_st->t;
-
-            f4x4 c_mat = fmj_stretch_buffer_get(f4x4,&matrix_buffer,rc_matrix_id);
-            
-            f3 p = inner_koma_st->t.p;
-
-            PxTransform pxt = ((PxRigidDynamic*)k->rigid_body.state)->getGlobalPose();
-            f3 new_p = f3_create(pxt.p.x,pxt.p.y,pxt.p.z);
-            quaternion new_r = quaternion_create(pxt.q.x,pxt.q.y,pxt.q.z,pxt.q.w);
-            
-            inner_koma_st->t.p = new_p;
-            outer_koma_st->t.p = inner_koma_st->t.p;
-            outer_koma_st->t.r = new_r;//f3_axis_angle(f3_create(0,0,1),outer_angle_rot);
-            outer_angle_rot += 0.01f;
-            fmj_3dtrans_update(&outer_koma_st->t);
-            fmj_3dtrans_update(&inner_koma_st->t);
-
-            FMJSprite is = inner_koma_st->sprite;//fmj_stretch_buffer_check_out(FMJSprite,&asset_tables.sprites,inner_koma_st->sprite_id);            
-            FMJSprite s = outer_koma_st->sprite;//fmj_stretch_buffer_check_out(FMJSprite,&asset_tables.sprites,outer_koma_st->sprite_id);
-            if(k->hp <= 0)
-            {
-                outer_koma_st->sprite.is_visible = false;
-                inner_koma_st->sprite.is_visible = false;
-            }
-            outer_koma_st->sprite.tex_id = outer_sprite_id;
-
-            //TODO(Ray):DOO this when we change turns 
-            if(k->hp <= 0)
-            {
-
-                PhysicsCode::SetFlagForActor((PxActor*)k->rigid_body.state,PxActorFlag::Enum::eDISABLE_SIMULATION ,true);
-            }
-            
-            f4x4* outer_model_matrix = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,outer_koma_st->model_matrix_id);
-            *outer_model_matrix = outer_koma_st->t.m;
-            f4x4* inner_model_matrix = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,inner_koma_st->model_matrix_id);
-            *inner_model_matrix = inner_koma_st->t.m;
-            
-        }
-
-        if(komas_total_linear_velocity <= 6.5f)
-        {
-            if(game_state.is_phyics_active)
-            {
-                game_state.current_player_id = (game_state.current_player_id + 1) % 2;
-                if(game_state.flicked_koma)
-                {
-                    game_state.flicked_koma->action_type = koma_action_type_defense;
-                    game_state.flicked_koma = nullptr;                
-                }
-            }
-            game_state.is_phyics_active = false;
-        }
-        else
-        {
-            game_state.is_phyics_active = true;
-        }
-        
-        if(ps->input.mouse.lmb.released)
-        {
-            show_title = false;
-            fmj_ui_evaluate_on_node_recursively(&base_node,SetSpriteNonVisible);
-        }
-        
         SoundCode::ContinousPlay(&bgm_soundclip);
-
-        
 //Render camera stated etc..  is finalized        
  //Free cam
 #if 0
@@ -866,16 +476,19 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         fmj_stretch_buffer_check_in(&matrix_buffer);
 //End game code
 
-
 //Render command creation(Render pass setup)
+                
         for(int i = 0;i < fixed_quad_buffer.count;++i)
         {
             FMJRenderCommand com = {};
             SpriteTrans st = fmj_fixed_buffer_get(SpriteTrans,&fixed_quad_buffer,i);
-            FMJSprite s = st.sprite;//fmj_stretch_buffer_get(FMJSprite,&asset_tables.sprites,st.sprite_id);
+            FMJSprite s = st.sprite;
             if(s.is_visible)
             {
+                FMJRenderGeometry geo = {};                            
                 geo.offset = (i * 6);
+                geo.buffer_id_range = f2_create(sprite_buffer_id,sprite_buffer_id);
+                geo.count = 6;                
                 com.geometry = geo;
                 com.material_id = s.material_id;
                 com.texture_id = s.tex_id;
@@ -893,8 +506,12 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             FMJSprite s = st.sprite;//fmj_stretch_buffer_get(FMJSprite,&asset_tables.sprites,st.sprite_id);
             if(s.is_visible)
             {
-                ui_geo.offset = (i * 6);
-                com.geometry = ui_geo;
+                FMJRenderGeometry geo = {};                                            
+                geo.offset = (i * 6);
+                geo.buffer_id_range = f2_create(ui_sprite_buffer_id,ui_sprite_buffer_id);
+                geo.count = 6;
+                com.geometry = geo;
+
                 com.material_id = s.material_id;
                 com.texture_id = s.tex_id;
                 com.model_matrix_id = identity_matrix_id;
@@ -903,8 +520,34 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                 fmj_stretch_buffer_push(&render_command_buffer,(void*)&com);
             }
         }
+
+        for(int i = 0;i < test_model.meshes.fixed.count;++i)
+        {
+            FMJRenderCommand com = {};
+            FMJAssetMesh m = fmj_stretch_buffer_get(FMJAssetMesh,&test_model.meshes,i);
+            FMJRenderGeometry geo = {};
+            if(m.index32_count > 0 || m.index16_count > 0)
+            {
+                com.is_indexed = true;
+                geo.buffer_id_range = m.mesh_resource.buffer_range;
+                geo.index_id = m.mesh_resource.index_id;
+                geo.index_count = m.index32_count;                
+            }
+            else
+            {
+                ASSERT(false);
+            }
+            geo.offset = 0;
+            com.geometry = geo;
+            com.material_id = m.material_id;
+            //com.texture_id = s.tex_id;
+//            com.model_matrix_id = st.model_matrix_id;
+            com.camera_matrix_id = rc_matrix_id;
+            com.perspective_matrix_id = ortho_matrix_id;
+            fmj_stretch_buffer_push(&render_command_buffer,(void*)&com);            
+        }
+
 //Render command setup end
-        
 
 //Render commands issued to the render api
         bool has_update = false;
@@ -938,8 +581,24 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                     tex_index = command.texture_id;
                     D12RendererCode::AddGraphicsRoot32BitConstant(4,4,&tex_index,0);
                     D12RendererCode::AddGraphicsRootDescTable(1,D12RendererCode::default_srv_desc_heap,D12RendererCode::default_srv_desc_heap->GetGPUDescriptorHandleForHeapStart());
-                    D3D12_VERTEX_BUFFER_VIEW bv = fmj_stretch_buffer_get(D3D12_VERTEX_BUFFER_VIEW,&asset_tables.vertex_buffers,command.geometry.id);
-                    D12RendererCode::AddDrawCommand(command.geometry.offset,6,D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,bv);
+
+                    int slot = 0;
+                    for(int i = command.geometry.buffer_id_range.x;i <= command.geometry.buffer_id_range.y;++i)
+                    {
+                        D3D12_VERTEX_BUFFER_VIEW bv = fmj_stretch_buffer_get(D3D12_VERTEX_BUFFER_VIEW,&asset_tables.vertex_buffers,i);
+                        D12RendererCode::AddSetVertexBufferCommand(slot++,bv);
+                    }
+                    
+                    if(command.is_indexed)
+                    {
+                        D3D12_INDEX_BUFFER_VIEW ibv = fmj_stretch_buffer_get(D3D12_INDEX_BUFFER_VIEW,&asset_tables.index_buffers,command.geometry.index_id);
+                        D12RendererCode::AddDrawIndexedCommand(command.geometry.offset,command.geometry.index_count,D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,ibv);
+                    }
+                    else
+                    {
+                        D12RendererCode::AddDrawCommand(command.geometry.offset,command.geometry.count,D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);                        
+                    }
+
                     has_update = true;
                 }
             }

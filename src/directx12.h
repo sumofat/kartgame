@@ -118,7 +118,8 @@ enum D12CommandType
     D12CommandType_RootSignature,
     D12CommandType_ScissorRect,
     D12CommandType_GraphicsRootDescTable,
-    D12CommandType_GraphicsRootConstant
+    D12CommandType_GraphicsRootConstant,
+    D12CommandType_SetVertexBuffer    
 };
 
 struct D12RenderCommandList
@@ -147,13 +148,20 @@ struct D12CommandBasicDraw
 struct D12CommandIndexedDraw
 {
     u32 index_count;
+    u32 index_offset;
     D3D12_PRIMITIVE_TOPOLOGY topology;
     u32 heap_count;
-    //ID3D12DescriptorHeap* heaps;
-    D3D12_VERTEX_BUFFER_VIEW uv_view;
-    D3D12_VERTEX_BUFFER_VIEW buffer_view;// TODO(Ray Garner): add a way to bind multiples
+//    D3D12_VERTEX_BUFFER_VIEW uv_view;
+//    D3D12_VERTEX_BUFFER_VIEW buffer_view;// TODO(Ray Garner): add a way to bind multiples
+    
     D3D12_INDEX_BUFFER_VIEW index_buffer_view;
     // TODO(Ray Garner): add a way to bind multiples
+};
+
+struct D12CommandSetVertexBuffer
+{
+    u32 slot;
+    D3D12_VERTEX_BUFFER_VIEW buffer_view;
 };
 
 struct D12CommandViewport
@@ -210,6 +218,7 @@ struct D12RenderTargets
     D3D12_CPU_DESCRIPTOR_HANDLE* depth_stencil_handle;
 };
 
+
 struct GPUArena
 {
     u64 size;
@@ -221,6 +230,18 @@ struct GPUArena
         D3D12_VERTEX_BUFFER_VIEW buffer_view;
         D3D12_INDEX_BUFFER_VIEW index_buffer_view;
     };
+};
+
+struct GPUMeshResource
+{
+    GPUArena vertex_buff;
+    GPUArena normal_buff;
+    GPUArena uv_buff;
+    GPUArena tangent_buff;
+    GPUArena element_buff;
+    uint64_t hash_key;
+    f2 buffer_range;
+    u32 index_id;
 };
 
 struct UploadOperations
@@ -714,23 +735,26 @@ namespace D12RendererCode
         def.alignment = 0;
         return PUSHSIZE(&render_com_buf.arena,size,def);
     }
+
+    void AddSetVertexBufferCommand(u32 slot,D3D12_VERTEX_BUFFER_VIEW buffer_view)
+    {
+        AddHeader(D12CommandType_SetVertexBuffer);
+        D12CommandSetVertexBuffer* com = AddCommand(D12CommandSetVertexBuffer);
+        com->slot = slot;
+        com->buffer_view = buffer_view;
+    }
     
-    void AddDrawIndexedCommand(u32 index_count,u32 heap_count,ID3D12DescriptorHeap* heaps,D3D12_PRIMITIVE_TOPOLOGY topology,
-                               D3D12_VERTEX_BUFFER_VIEW uv_view,
-                               D3D12_VERTEX_BUFFER_VIEW buffer_view,
-                               D3D12_INDEX_BUFFER_VIEW index_buffer_view)
+    void AddDrawIndexedCommand(u32 index_count,u32 index_offset,D3D12_PRIMITIVE_TOPOLOGY topology,D3D12_INDEX_BUFFER_VIEW index_buffer_view)
     {
         AddHeader(D12CommandType_DrawIndexed);
         D12CommandIndexedDraw* com = AddCommand(D12CommandIndexedDraw);
         com->index_count = index_count;
-        com->heap_count = heap_count;
+        com->index_offset = index_offset;
         com->topology = topology;
-        com->uv_view = uv_view;
-        com->buffer_view = buffer_view;
         com->index_buffer_view = index_buffer_view;
     }
     
-    void AddDrawCommand(u32 offset,u32 count,D3D12_PRIMITIVE_TOPOLOGY topology,D3D12_VERTEX_BUFFER_VIEW buffer_view)
+    void AddDrawCommand(u32 offset,u32 count,D3D12_PRIMITIVE_TOPOLOGY topology)
     {
         ASSERT(count != 0);
         AddHeader(D12CommandType_Draw);
@@ -738,7 +762,6 @@ namespace D12RendererCode
         com->count = count;
         com->vertex_offset = offset;
         com->topology = topology;
-        com->buffer_view = buffer_view;
     }
     
     void AddViewportCommand(f4 vp)
@@ -1771,13 +1794,13 @@ namespace D12RendererCode
             D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
             D3D12_RESOURCE_FLAG_NONE,
         };
+        
         result.size = size;                
         // Create a committed resource for the GPU resource in a default heap.
         HRESULT r = (device->CreateCommittedResource(
             &hp,
             D3D12_HEAP_FLAG_NONE,
             &res_d,
-//            D3D12_RESOURCE_STATE_GENERIC_READ,            
             D3D12_RESOURCE_STATE_COPY_DEST,
             nullptr,
             IID_PPV_ARGS(&result.resource)));
@@ -2363,10 +2386,17 @@ namespace D12RendererCode
                 continue;
             }
 
+            else if(command_type == D12CommandType_SetVertexBuffer)
+            {
+                D12CommandSetVertexBuffer* com = Pop(at,D12CommandSetVertexBuffer);
+                current_cl.list->IASetVertexBuffers(com->slot, 1, &com->buffer_view);                
+                continue;                
+            }
+
             else if(command_type == D12CommandType_Draw)
             {
                 D12CommandBasicDraw* com = Pop(at,D12CommandBasicDraw);
-                current_cl.list->IASetVertexBuffers(0, 1, &com->buffer_view);
+//                current_cl.list->IASetVertexBuffers(0, 1, &com->buffer_view);
                 current_cl.list->IASetPrimitiveTopology(com->topology);
                 current_cl.list->DrawInstanced(com->count, 1, com->vertex_offset, 0);
                 continue;
@@ -2375,15 +2405,13 @@ namespace D12RendererCode
             else if(command_type == D12CommandType_DrawIndexed)
             {
                 D12CommandIndexedDraw* com = Pop(at,D12CommandIndexedDraw);
-                D3D12_VERTEX_BUFFER_VIEW views[2] = {com->buffer_view,com->uv_view};
-                
-                //current_cl.list->IASetVertexBuffers(1, 1, &com->uv_view);
-                current_cl.list->IASetVertexBuffers(0, 2, views);
+//                D3D12_VERTEX_BUFFER_VIEW views[2] = {com->buffer_view,com->uv_view};
+//                current_cl.list->IASetVertexBuffers(0, 2, views);
                 current_cl.list->IASetIndexBuffer(&com->index_buffer_view);
                 // NOTE(Ray Garner): // TODO(Ray Garner): Get the heaps
                 //that match with the pipeline state and root sig
                 current_cl.list->IASetPrimitiveTopology(com->topology);
-                current_cl.list->DrawIndexedInstanced(com->index_count,1,0,0,0);
+                current_cl.list->DrawIndexedInstanced(com->index_count,1,com->index_offset,0,0);
                 continue;
             }
             
