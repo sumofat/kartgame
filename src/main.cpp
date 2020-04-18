@@ -25,10 +25,8 @@ extern "C"{
 #include "koma.h"
 #include "ping_game.h"
 
-
 AssetTables asset_tables = {0};
 u64 material_count = 0;
-
 
 enum RenderCameraProjectionType
 {
@@ -115,72 +113,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     
     //Load a texture with all mip maps calculated
     //load texture to mem from disk
-    LoadedTexture test_texture = get_loaded_image("test.png",4);
-    LoadedTexture test_texture_2 = get_loaded_image("test2.png",4);    
-    LoadedTexture koma_2 = get_loaded_image("koma_2.png",4);
     LoadedTexture ping_title = get_loaded_image("ping_title.png",4);
-    LoadedTexture koma_outer_1 = get_loaded_image("rook_outer_1.png",4);    
-    LoadedTexture koma_outer_2 = get_loaded_image("rook_outer_2.png",4);
-    LoadedTexture koma_outer_3 = get_loaded_image("rook_outer_3.png",4);
-
-    LoadedTexture koma_pawn_inner = get_loaded_image("pawn.png",4);
-    LoadedTexture koma_pawn_outer_1 = get_loaded_image("pawn_outer_1.png",4);
-    LoadedTexture koma_pawn_outer_2 = get_loaded_image("pawn_outer_2.png",4);
-
-    LoadedTexture koma_queen_inner = get_loaded_image("queen.png",4);
-    LoadedTexture koma_queen_outer_1 = get_loaded_image("queen_outer_1.png",4);
-    LoadedTexture koma_queen_outer_2 = get_loaded_image("queen_outer_2.png",4);
-    LoadedTexture koma_queen_outer_3 = get_loaded_image("queen_outer_3.png",4);
-    LoadedTexture koma_queen_outer_4 = get_loaded_image("queen_outer_4.png",4);
-    LoadedTexture koma_queen_outer_5 = get_loaded_image("queen_outer_5.png",4);
-    LoadedTexture koma_queen_outer_6 = get_loaded_image("queen_outer_6.png",4);
-
-    LoadedTexture koma_king_inner = get_loaded_image("king.png",4);
-    LoadedTexture koma_king_outer_1 = get_loaded_image("king_outer_1.png",4);
-    LoadedTexture koma_king_outer_2 = get_loaded_image("king_outer_2.png",4);
-    LoadedTexture koma_king_outer_3 = get_loaded_image("king_outer_3.png",4);
-    LoadedTexture koma_king_outer_4 = get_loaded_image("king_outer_4.png",4);
-    LoadedTexture koma_king_outer_5 = get_loaded_image("king_outer_5.png",4);
-    
-    //court stuff
-    LoadedTexture circle = get_loaded_image("circle.png",4);
-    LoadedTexture line   = get_loaded_image("line.png",4);
-    
-    //upload texture data to gpu
-    D12RendererCode::Texture2D(&test_texture,0);
-    D12RendererCode::Texture2D(&test_texture_2,1);
-
-    D12RendererCode::Texture2D(&koma_2,2);
     D12RendererCode::Texture2D(&ping_title,3);
-    f2 rook_tex_id_range = f2_create(4,7);    //4 is not here used by matrix buffer but we pretend it is.    
-    D12RendererCode::Texture2D(&koma_outer_1,5);
-    D12RendererCode::Texture2D(&koma_outer_2,6);
-    D12RendererCode::Texture2D(&koma_outer_3,7);
-
-    D12RendererCode::Texture2D(&circle,8);
-    D12RendererCode::Texture2D(&line,9);        
-    u32 current_tex_id = 10;
-    f2 pawn_tex_id_range = f2_create(10,12);
-    D12RendererCode::Texture2D(&koma_pawn_inner,current_tex_id++);
-    D12RendererCode::Texture2D(&koma_pawn_outer_1,current_tex_id++);
-    D12RendererCode::Texture2D(&koma_pawn_outer_2,current_tex_id++);
-
-    f2 queen_tex_id_range = f2_create(13,19);
-    D12RendererCode::Texture2D(&koma_queen_inner,current_tex_id++);
-    D12RendererCode::Texture2D(&koma_queen_outer_1,current_tex_id++);
-    D12RendererCode::Texture2D(&koma_queen_outer_2,current_tex_id++);
-    D12RendererCode::Texture2D(&koma_queen_outer_3,current_tex_id++);
-    D12RendererCode::Texture2D(&koma_queen_outer_4,current_tex_id++);
-    D12RendererCode::Texture2D(&koma_queen_outer_5,current_tex_id++);    
-    D12RendererCode::Texture2D(&koma_queen_outer_6,current_tex_id++);
-
-    f2 king_tex_id_range = f2_create(20,25);
-    D12RendererCode::Texture2D(&koma_king_inner,current_tex_id++);
-    D12RendererCode::Texture2D(&koma_king_outer_1,current_tex_id++);
-    D12RendererCode::Texture2D(&koma_king_outer_2,current_tex_id++);
-    D12RendererCode::Texture2D(&koma_king_outer_3,current_tex_id++);
-    D12RendererCode::Texture2D(&koma_king_outer_4,current_tex_id++);    
-    D12RendererCode::Texture2D(&koma_king_outer_5,current_tex_id++);
     
     FMJMemoryArena permanent_strings = fmj_arena_allocate(FMJMEGABYTES(1));
     FMJMemoryArena temp_strings = fmj_arena_allocate(FMJMEGABYTES(1));    
@@ -226,22 +160,35 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,       0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
     };
     
+    D3D12_INPUT_ELEMENT_DESC input_layout_mesh[] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "NORMAL"  , 0, DXGI_FORMAT_R32G32B32_FLOAT,   1, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },        
+//        { "COLOR"   , 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,       2, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+    };
+    
     uint32_t input_layout_count = _countof(input_layout);
+    uint32_t input_layout_count_mesh = _countof(input_layout_mesh);    
     // Create a root/shader signature.
 
     char* vs_file_name = "vs_test.hlsl";
+    char* vs_mesh_file_name = "vs_test_mesh.hlsl";
     char* fs_file_name = "ps_test.hlsl";
-    RenderShader rs = D12RendererCode::CreateRenderShader(vs_file_name,fs_file_name);
-
     char* fs_color_file_name = "fs_color.hlsl";
+    RenderShader rs = D12RendererCode::CreateRenderShader(vs_file_name,fs_file_name);
+    RenderShader mesh_rs = D12RendererCode::CreateRenderShader(vs_mesh_file_name,fs_file_name);
+
     RenderShader rs_color = D12RendererCode::CreateRenderShader(vs_file_name,fs_color_file_name);
     
     PipelineStateStream ppss = D12RendererCode::CreateDefaultPipelineStateStreamDesc(input_layout,input_layout_count,rs.vs_blob,rs.fs_blob);
     ID3D12PipelineState* pipeline_state = D12RendererCode::CreatePipelineState(ppss);    
 
     PipelineStateStream color_ppss = D12RendererCode::CreateDefaultPipelineStateStreamDesc(input_layout,input_layout_count,rs.vs_blob,rs_color.fs_blob);
-    ID3D12PipelineState* color_pipeline_state = D12RendererCode::CreatePipelineState(color_ppss);    
-
+    ID3D12PipelineState* color_pipeline_state = D12RendererCode::CreatePipelineState(color_ppss);
+    
+    PipelineStateStream color_ppss_mesh = D12RendererCode::CreateDefaultPipelineStateStreamDesc(input_layout_mesh,input_layout_count_mesh,mesh_rs.vs_blob,mesh_rs.fs_blob,true);
+    ID3D12PipelineState* color_pipeline_state_mesh = D12RendererCode::CreatePipelineState(color_ppss_mesh);    
+    
     FMJRenderMaterial base_render_material = {0};
     base_render_material.pipeline_state = (void*)pipeline_state;
     base_render_material.viewport_rect = f4_create(0,0,ps->window.dim.x,ps->window.dim.y);
@@ -256,6 +203,14 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     color_render_material.scissor_rect = f4_create(0,0,LONG_MAX,LONG_MAX);    
     color_render_material.id = material_count;
     fmj_anycache_add_to_free_list(&asset_tables.materials,(void*)&material_count,&color_render_material);    
+    material_count++;
+
+    FMJRenderMaterial color_render_material_mesh = color_render_material;
+    color_render_material_mesh.pipeline_state = (void*)color_pipeline_state_mesh;
+    color_render_material_mesh.viewport_rect = f4_create(0,0,ps->window.dim.x,ps->window.dim.y);
+    color_render_material_mesh.scissor_rect = f4_create(0,0,LONG_MAX,LONG_MAX);    
+    color_render_material_mesh.id = material_count;
+    fmj_anycache_add_to_free_list(&asset_tables.materials,(void*)&material_count,&color_render_material_mesh);    
     material_count++;
 
     //Camera setup
@@ -273,7 +228,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     rc.projection_matrix = init_pers_proj_matrix(ps->window.dim,rc.fov,rc.near_far_planes);
     rc.matrix = f4x4_identity();
     
-    u64 ortho_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,(void*)&rc.projection_matrix);
+    u64 projection_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,(void*)&rc.projection_matrix);
     u64 rc_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,(void*)&rc.matrix);
     
     RenderCamera rc_ui = {};
@@ -369,17 +324,29 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 
     //test gltlf aquisition
     FMJAssetContext asset_ctx = {};
+    asset_ctx.asset_tables = &asset_tables;
     asset_ctx.perm_mem = &permanent_strings;
     asset_ctx.temp_mem = &temp_strings;    
-    FMJAssetModel test_model = fmj_asset_model_create(&asset_ctx);
-    if(!fmj_asset_load_model_from_glb(&asset_ctx,"../data/models/box.glb",&test_model,color_render_material.id))
-    {
-        //Could not aquire model stop for now.
-        ASSERT(false);
-    }
 
+//    FMJAssetModel test_model = fmj_asset_load_model_from_glb(&asset_ctx,"../data/models/BoxTextured.glb",color_render_material_mesh.id);
+//    FMJAssetModel test_model = fmj_asset_load_model_from_glb(&asset_ctx,"../data/models/Box.glb",color_render_material_mesh.id);
+//    FMJAssetModel test_model = fmj_asset_load_model_from_glb(&asset_ctx,"../data/models/Avocado.glb",color_render_material_mesh.id);//scale is messed up and uvs
+//    FMJAssetModel test_model = fmj_asset_load_model_from_glb(&asset_ctx,"../data/models/Fox.glb",color_render_material_mesh.id);        //no indices 16
+//    FMJAssetModel test_model = fmj_asset_load_model_from_glb(&asset_ctx,"../data/models/Duck.glb",color_render_material_mesh.id);//scale is messed up and uvs
+//    FMJAssetModel test_model = fmj_asset_load_model_from_glb(&asset_ctx,"../data/models/2CylinderEngine.glb",color_render_material_mesh.id);//crashes
+//    FMJAssetModel test_model = fmj_asset_load_model_from_glb(&asset_ctx,"../data/models/BarramundiFish.glb",color_render_material_mesh.id);//
+    FMJAssetModel test_model = fmj_asset_load_model_from_glb(&asset_ctx,"../data/models/Lantern.glb",color_render_material_mesh.id);//crashes        
+
+    FMJAssetMesh* test_mesh = fmj_stretch_buffer_check_out(FMJAssetMesh,&test_model.meshes,0);
+    
     fmj_asset_upload_model(&asset_tables,&asset_ctx,&test_model);
-
+    FMJ3DTrans test_mesh_t;
+    fmj_3dtrans_init(&test_mesh_t);
+    test_mesh_t.p = f3_create(0,0,-5);
+    test_mesh_t.s = f3_create_f(1);
+    fmj_3dtrans_update(&test_mesh_t);    
+    
+    u64 test_mesh_model_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,&test_mesh_t.m);
 //end game object setup
 
     //ui  evaulation
@@ -441,9 +408,16 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             show_title = false;
             fmj_ui_evaluate_on_node_recursively(&base_node,SetSpriteNonVisible);
         }
+
+        test_mesh_t.r = f3_axis_angle(f3_create(0,1,0),angle);
+        fmj_3dtrans_update(&test_mesh_t);    
+        angle += 0.01f;
         
+        f4x4* tmt = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,test_mesh_model_matrix_id);        
+        *tmt = test_mesh_t.m;
+
         //modify camera matrix
-        f4x4* p_mat_ = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,ortho_matrix_id);
+        f4x4* p_mat_ = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,projection_matrix_id);
 #if 0
         size.x = abs(sin(size_sin)) * 300;
         size.y = abs(cos(size_sin)) * 300;
@@ -477,6 +451,39 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 //End game code
 
 //Render command creation(Render pass setup)
+
+        for(int i = 0;i < test_model.meshes.fixed.count;++i)
+        {
+            FMJRenderCommand com = {};
+            FMJAssetMesh m = fmj_stretch_buffer_get(FMJAssetMesh,&test_model.meshes,i);
+            FMJRenderGeometry geo = {};
+            if(m.index32_count > 0)
+            {
+                com.is_indexed = true;
+                geo.buffer_id_range = m.mesh_resource.buffer_range;
+                geo.index_id = m.mesh_resource.index_id;
+                geo.index_count = m.index32_count;                
+            }
+            if(m.index16_count > 0)
+            {
+                com.is_indexed = true;
+                geo.buffer_id_range = m.mesh_resource.buffer_range;
+                geo.index_id = m.mesh_resource.index_id;
+                geo.index_count = m.index16_count;                
+            }
+            else
+            {
+                ASSERT(false);
+            }
+            geo.offset = 0;
+            com.geometry = geo;
+            com.material_id = m.material_id;
+            com.texture_id = m.metallic_roughness_texture_id;
+            com.model_matrix_id = test_mesh_model_matrix_id;
+            com.camera_matrix_id = rc_matrix_id;
+            com.perspective_matrix_id = projection_matrix_id;
+            fmj_stretch_buffer_push(&render_command_buffer,(void*)&com);            
+        }
                 
         for(int i = 0;i < fixed_quad_buffer.count;++i)
         {
@@ -494,7 +501,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                 com.texture_id = s.tex_id;
                 com.model_matrix_id = st.model_matrix_id;
                 com.camera_matrix_id = rc_matrix_id;
-                com.perspective_matrix_id = ortho_matrix_id;
+                com.perspective_matrix_id = projection_matrix_id;
                 fmj_stretch_buffer_push(&render_command_buffer,(void*)&com);
             }            
         }
@@ -519,32 +526,6 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                 com.perspective_matrix_id = screen_space_matrix_id;
                 fmj_stretch_buffer_push(&render_command_buffer,(void*)&com);
             }
-        }
-
-        for(int i = 0;i < test_model.meshes.fixed.count;++i)
-        {
-            FMJRenderCommand com = {};
-            FMJAssetMesh m = fmj_stretch_buffer_get(FMJAssetMesh,&test_model.meshes,i);
-            FMJRenderGeometry geo = {};
-            if(m.index32_count > 0 || m.index16_count > 0)
-            {
-                com.is_indexed = true;
-                geo.buffer_id_range = m.mesh_resource.buffer_range;
-                geo.index_id = m.mesh_resource.index_id;
-                geo.index_count = m.index32_count;                
-            }
-            else
-            {
-                ASSERT(false);
-            }
-            geo.offset = 0;
-            com.geometry = geo;
-            com.material_id = m.material_id;
-            //com.texture_id = s.tex_id;
-//            com.model_matrix_id = st.model_matrix_id;
-            com.camera_matrix_id = rc_matrix_id;
-            com.perspective_matrix_id = ortho_matrix_id;
-            fmj_stretch_buffer_push(&render_command_buffer,(void*)&com);            
         }
 
 //Render command setup end
@@ -592,7 +573,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                     if(command.is_indexed)
                     {
                         D3D12_INDEX_BUFFER_VIEW ibv = fmj_stretch_buffer_get(D3D12_INDEX_BUFFER_VIEW,&asset_tables.index_buffers,command.geometry.index_id);
-                        D12RendererCode::AddDrawIndexedCommand(command.geometry.offset,command.geometry.index_count,D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,ibv);
+                        D12RendererCode::AddDrawIndexedCommand(command.geometry.index_count,command.geometry.offset,D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,ibv);
                     }
                     else
                     {

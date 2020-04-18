@@ -2,19 +2,21 @@
 #define CGLTF_IMPLEMENTATION
 #include "../external/cgltf/cgltf.h"
 
-struct FMJAssetContext
-{
-    FMJMemoryArena* perm_mem;
-    FMJMemoryArena* temp_mem;
-}typedef FMJAssetContext;
-
 struct AssetTables
 {
     AnyCache materials;
     FMJStretchBuffer sprites;
+    FMJStretchBuffer textures;
     FMJStretchBuffer vertex_buffers;
-    FMJStretchBuffer index_buffers;    
+    FMJStretchBuffer index_buffers;
 }typedef AssetTables;
+
+struct FMJAssetContext
+{
+    FMJMemoryArena* perm_mem;
+    FMJMemoryArena* temp_mem;
+    AssetTables* asset_tables;
+}typedef FMJAssetContext;
 
 enum FMJAssetVertCompressionType
 {
@@ -63,6 +65,8 @@ struct FMJAssetMesh
     u64 index16_count;
     GPUMeshResource mesh_resource;    
     u32 material_id;
+
+    u64 metallic_roughness_texture_id;
 }typedef FMJMeshAsset;
 
 struct FMJAssetModel
@@ -76,6 +80,7 @@ void fmj_asset_init(AssetTables* asset_tables)
 {
     asset_tables->materials = fmj_anycache_init(4096,sizeof(FMJRenderMaterial),sizeof(u64),true);                                  
     asset_tables->sprites = fmj_stretch_buffer_init(1,sizeof(FMJSprite),8);
+    asset_tables->textures = fmj_stretch_buffer_init(1,sizeof(LoadedTexture),8);    
     //NOTE(RAY):If we want to make this platform independendt we would just make a max size of all platofrms
     //struct and put in this and get out the opaque pointer and cast it to what we need.
     asset_tables->vertex_buffers = fmj_stretch_buffer_init(1,sizeof(D3D12_VERTEX_BUFFER_VIEW),8);
@@ -89,10 +94,22 @@ FMJAssetModel fmj_asset_model_create(FMJAssetContext* ctx)
     return model;
 }
 
+u64 fmj_asset_texture_add(FMJAssetContext* ctx,LoadedTexture texture)
+{
+
+    u64 tex_id = fmj_stretch_buffer_push(&ctx->asset_tables->textures,&texture);    
+    D12RendererCode::Texture2D(&texture,tex_id);
+    //TODO(ray):Add assert to how many textures are allowed in acertain heap that
+    //we are using to store the texture on the gpu.
+//texid is a slot on the gpu heap
+//    ASSERT(tex_id < MAX_TEX_ID_FOR_HEAP)
+    return tex_id;
+}
+
 FMJAssetMesh fmj_asset_create_mesh_from_cgltf_mesh(FMJAssetContext* ctx,cgltf_mesh* ma)
 {
     ASSERT(ma);
-    FMJAssetMesh mesh = {};        
+    FMJAssetMesh mesh = {};
     //Extract mesh binary data
     for(int j = 0;j < ma->primitives_count;++j)
     {
@@ -119,6 +136,12 @@ FMJAssetMesh fmj_asset_create_mesh_from_cgltf_mesh(FMJAssetContext* ctx,cgltf_me
             if(mat->pbr_metallic_roughness.base_color_texture.texture)
             {
                 cgltf_texture_view tv = mat->pbr_metallic_roughness.base_color_texture;
+                u64 offset = (u64)tv.texture->image->buffer_view->offset;
+                void* tex_data = (uint8_t*)tv.texture->image->buffer_view->buffer->data + offset;
+                uint64_t data_size = tv.texture->image->buffer_view->size;                
+                LoadedTexture tex =  get_loaded_image_from_mem(tex_data,data_size,4);                
+                u64 id = fmj_asset_texture_add(ctx,tex);                
+                mesh.metallic_roughness_texture_id = id;
             }
             if(mat->pbr_metallic_roughness.metallic_roughness_texture.texture)
             {
@@ -157,7 +180,6 @@ FMJAssetMesh fmj_asset_create_mesh_from_cgltf_mesh(FMJAssetContext* ctx,cgltf_me
         //occlusionTexture
         //normalTexture
 
-
         //TODO(Ray):Next we wil lmake append char to char verify that we are treating these primitives
         //as such in the importer and make sure that the propery uvs are being imported on the read side.
         //Something is not quite right.
@@ -179,8 +201,10 @@ FMJAssetMesh fmj_asset_create_mesh_from_cgltf_mesh(FMJAssetContext* ctx,cgltf_me
                     cgltf_buffer_view* ibf = prim.indices->buffer_view;
                     u64 istart_offset = ibf->offset;
                     cgltf_buffer* ibuf = ibf->buffer;
-                    uint16_t* indices_buffer = (uint16_t*)((uint8_t*)ibuf->data + istart_offset);
-                    mesh.index_16_data = indices_buffer;
+                    u16* indices_buffer = (uint16_t*)((uint8_t*)ibuf->data + istart_offset);
+                    u16* outindex_f = (u16*)malloc(ibf->size);
+                    memcpy(outindex_f,indices_buffer,ibf->size);
+                    mesh.index_16_data = outindex_f;
                     mesh.index_16_data_size = ibf->size;
                     mesh.index16_count = prim.indices->count;
                 }
@@ -195,22 +219,36 @@ FMJAssetMesh fmj_asset_create_mesh_from_cgltf_mesh(FMJAssetContext* ctx,cgltf_me
                 u32 stride = (u32)bf->stride;
                 cgltf_buffer* buf = bf->buffer;
                 float* buffer = (float*)((uint8_t*)buf->data + start_offset);
-                            
+
+
+                if (acdata->is_sparse)
+                {
+
+                    ASSERT(false);
+                }
+
+                cgltf_size num_floats = acdata->count * cgltf_num_components(acdata->type);
+                cgltf_size num_bytes = sizeof(f32) * num_floats;                
+                cgltf_float* outf = (cgltf_float*)malloc(num_bytes);
+                cgltf_size csize = cgltf_accessor_unpack_floats(acdata,outf,num_floats);
+                    
                 if(ac.type == cgltf_attribute_type_position)
                 {
-                    mesh.vertex_data = buffer;
+                    mesh.vertex_data = outf;
                     mesh.vertex_data_size = bf->size;
                     mesh.vertex_count = count * 3;
                 }
+
                 else if(ac.type == cgltf_attribute_type_normal)
                 {
-                    mesh.normal_data = buffer;
+                    mesh.normal_data = outf;
                     mesh.normal_data_size = bf->size;
                     mesh.normal_count = count * 3;
                 }
+
                 else if(ac.type == cgltf_attribute_type_tangent)
                 {
-                    mesh.tangent_data = buffer;
+                    mesh.tangent_data = outf;
                     mesh.tangent_data_size = bf->size;
                     mesh.tangent_count = count * 3;
                 }
@@ -218,14 +256,15 @@ FMJAssetMesh fmj_asset_create_mesh_from_cgltf_mesh(FMJAssetContext* ctx,cgltf_me
 //NOTE(Ray):only support two set of uv data for now.
                 else if(ac.type == cgltf_attribute_type_texcoord && !has_got_first_uv_set)
                 {
-                    mesh.uv_data = buffer;
+                    mesh.uv_data = outf;
                     mesh.uv_data_size = bf->size;
                     mesh.uv_count = count * 2;
                     has_got_first_uv_set = true;
                 }
+                
                 else if(ac.type == cgltf_attribute_type_texcoord && has_got_first_uv_set)
                 {
-                    mesh.uv2_data = buffer;
+                    mesh.uv2_data = outf;
                     mesh.uv2_data_size = bf->size;
                     mesh.uv2_count = count * 2;
                     has_got_first_uv_set = true;                        
@@ -236,12 +275,11 @@ FMJAssetMesh fmj_asset_create_mesh_from_cgltf_mesh(FMJAssetContext* ctx,cgltf_me
     return mesh;    
 }
 
-bool fmj_asset_load_model_from_glb(FMJAssetContext* ctx,const char* file_path,FMJAssetModel* result,u32  material_id)
+FMJAssetModel fmj_asset_load_model_from_glb(FMJAssetContext* ctx,const char* file_path,u32  material_id)
 {
+    FMJAssetModel result= {};
     bool is_success = false;
-    result->model_name = fmj_string_create((char*)file_path,ctx->perm_mem);
 
-    FMJAssetModel model = {};
     cgltf_options options = {};
     cgltf_data* data = NULL;
     cgltf_result aresult = cgltf_parse_file(&options,file_path, &data);
@@ -256,7 +294,8 @@ bool fmj_asset_load_model_from_glb(FMJAssetContext* ctx,const char* file_path,FM
             ASSERT(false);
         }
 
-        model = fmj_asset_model_create(ctx);
+        result = fmj_asset_model_create(ctx);
+        result.model_name = fmj_string_create((char*)file_path,ctx->perm_mem);
         
         cgltf_result rs = cgltf_load_buffers(&options, data, data->buffers[0].uri);
         for(int i = 0;i < data->meshes_count;++i)
@@ -264,7 +303,7 @@ bool fmj_asset_load_model_from_glb(FMJAssetContext* ctx,const char* file_path,FM
             cgltf_mesh mes = data->meshes[i];
             FMJAssetMesh mesh = fmj_asset_create_mesh_from_cgltf_mesh(ctx,&mes);
             mesh.material_id = material_id;
-            fmj_stretch_buffer_push(&model.meshes,&mesh);
+            fmj_stretch_buffer_push(&result.meshes,&mesh);
             is_success = true;            
         }
         if(!is_success)
@@ -272,13 +311,10 @@ bool fmj_asset_load_model_from_glb(FMJAssetContext* ctx,const char* file_path,FM
             //TODO(Ray):Delte created model data.
             ASSERT(false);
         }
-        else
-        {
-            *result = model;
-        }
+
         cgltf_free(data);
     }
-    return is_success;        
+    return result;        
 }
 
 void fmj_asset_upload_model(AssetTables* asset_tables,FMJAssetContext*ctx,FMJAssetModel* ma)
@@ -291,14 +327,13 @@ void fmj_asset_upload_model(AssetTables* asset_tables,FMJAssetContext*ctx,FMJAss
         f2 id_range;
         if(mesh->vertex_count > 0)
         {
-            u64 v_size = 3 * sizeof(f32) * mesh->vertex_count;
+            u64 v_size = mesh->vertex_data_size;//3 * sizeof(f32) * mesh->vertex_count;
             u32 stride = sizeof(f32) * 3;            
             mesh_r.vertex_buff = D12RendererCode::AllocateStaticGPUArena(v_size);
             D12RendererCode::SetArenaToVertexBufferView(&mesh_r.vertex_buff,v_size,stride);
-
-            u32 id = fmj_stretch_buffer_push(&asset_tables->vertex_buffers,(void*)&mesh_r.vertex_buff.buffer_view);
-            
             D12RendererCode::UploadBufferData(&mesh_r.vertex_buff,mesh->vertex_data,v_size);
+            
+            u32 id = fmj_stretch_buffer_push(&asset_tables->vertex_buffers,(void*)&mesh_r.vertex_buff.buffer_view);            
 
             id_range.x = id;            
             is_valid++;
@@ -311,28 +346,26 @@ void fmj_asset_upload_model(AssetTables* asset_tables,FMJAssetContext*ctx,FMJAss
         f32 start_range = id_range.x;
         if(mesh->normal_count > 0)
         {
-            u64 size = sizeof(f32) * mesh->normal_count * 3;
-            u32 stride = sizeof(f32) * 3;                        
+            u64 size = mesh->normal_data_size;
+            u32 stride = sizeof(f32) * 3;
             mesh_r.normal_buff = D12RendererCode::AllocateStaticGPUArena(size);            
             D12RendererCode::SetArenaToVertexBufferView(&mesh_r.normal_buff,size,stride);            
 
-            fmj_stretch_buffer_push(&asset_tables->vertex_buffers,(void*)&mesh_r.normal_buff.buffer_view);
             D12RendererCode::UploadBufferData(&mesh_r.normal_buff,mesh->normal_data,size);
-
+            fmj_stretch_buffer_push(&asset_tables->vertex_buffers,(void*)&mesh_r.normal_buff.buffer_view);
             start_range  += 1.0f;
             is_valid++;
         }
         
         if(mesh->uv_count > 0)
         {
-            u64 size = sizeof(float) * mesh->uv_count;
+            u64 size = mesh->uv_data_size;
             u32 stride = sizeof(f32) * 2;
             mesh_r.uv_buff = D12RendererCode::AllocateStaticGPUArena(size);            
             D12RendererCode::SetArenaToVertexBufferView(&mesh_r.uv_buff,size,stride);            
 
+            D12RendererCode::UploadBufferData(&mesh_r.uv_buff,mesh->uv_data,size);
             fmj_stretch_buffer_push(&asset_tables->vertex_buffers,(void*)&mesh_r.uv_buff.buffer_view);    
-            D12RendererCode::UploadBufferData(&mesh_r.uv_buff,mesh->normal_data,size);
-
             start_range += 1.0f;            
             is_valid++;
         }
@@ -346,10 +379,8 @@ void fmj_asset_upload_model(AssetTables* asset_tables,FMJAssetContext*ctx,FMJAss
             mesh_r.uv_buff = D12RendererCode::AllocateStaticGPUArena(size);            
             D12RendererCode::SetArenaToVertexBufferView(&mesh_r.uv_buff,size,stride);            
 
-            fmj_stretch_buffer_push(&asset_tables->vertex_buffers,(void*)&mesh_r.uv_buff.buffer_view);    
-            D12RendererCode::UploadBufferData(&mesh_r.uv_buff,mesh->normal_data,size);            
-            mesh_r.uv2_buff = ogle_gen_buffer(s,size,ResourceStorageModeShared);
-            ogle_buffer_data_named(s,size,&mesh_r.uv2_buff,(void*)mesh->uv2_data);
+            D12RendererCode::UploadBufferData(&mesh_r.uv_buff,mesh->uv2_data,size);
+            fmj_stretch_buffer_push(&asset_tables->vertex_buffers,(void*)&mesh_r.uv_buff.buffer_view);
 
             start_range += 1.0f;
             is_valid++;
@@ -360,7 +391,7 @@ void fmj_asset_upload_model(AssetTables* asset_tables,FMJAssetContext*ctx,FMJAss
         
         if(mesh->index32_count > 0)
         {
-            u64 size = sizeof(float) * mesh->index32_count;
+            u64 size = mesh->index_32_data_size;
             mesh_r.element_buff = D12RendererCode::AllocateStaticGPUArena(size);
             DXGI_FORMAT format;
 
@@ -368,15 +399,16 @@ void fmj_asset_upload_model(AssetTables* asset_tables,FMJAssetContext*ctx,FMJAss
             format = DXGI_FORMAT_R32_UINT;                
             D12RendererCode::SetArenaToIndexVertexBufferView(&mesh_r.element_buff,size,format);
 
-            u64 index_id = fmj_stretch_buffer_push(&asset_tables->index_buffers,(void*)&mesh_r.element_buff.index_buffer_view);    
             D12RendererCode::UploadBufferData(&mesh_r.element_buff,mesh->index_32_data,size);            
-
+            u64 index_id = fmj_stretch_buffer_push(&asset_tables->index_buffers,(void*)&mesh_r.element_buff.index_buffer_view);
+            
             mesh_r.index_id = index_id;
             is_valid++;
         }
+        
         else if(mesh->index16_count > 0)
         {
-            u64 size = sizeof(float) * mesh->index16_count;
+            u64 size = mesh->index_16_data_size;
             mesh_r.element_buff = D12RendererCode::AllocateStaticGPUArena(size);
             DXGI_FORMAT format;
             mesh->index_component_size = fmj_asset_index_component_size_16;
@@ -384,9 +416,9 @@ void fmj_asset_upload_model(AssetTables* asset_tables,FMJAssetContext*ctx,FMJAss
             format = DXGI_FORMAT_R16_UINT;                                
             D12RendererCode::SetArenaToIndexVertexBufferView(&mesh_r.element_buff,size,format);
 
-            u64 index_id = fmj_stretch_buffer_push(&asset_tables->index_buffers,(void*)&mesh_r.element_buff.index_buffer_view);    
             D12RendererCode::UploadBufferData(&mesh_r.element_buff,mesh->index_16_data,size);            
-
+            u64 index_id = fmj_stretch_buffer_push(&asset_tables->index_buffers,(void*)&mesh_r.element_buff.index_buffer_view);
+            
             mesh_r.index_id = index_id;
             is_valid++;
         }

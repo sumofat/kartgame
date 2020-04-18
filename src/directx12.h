@@ -664,7 +664,7 @@ namespace D12RendererCode
 
     }
     
-    PipelineStateStream CreateDefaultPipelineStateStreamDesc(D3D12_INPUT_ELEMENT_DESC* input_layout,int input_layout_count,ID3DBlob* vs_blob,ID3DBlob* fs_blob)
+    PipelineStateStream CreateDefaultPipelineStateStreamDesc(D3D12_INPUT_ELEMENT_DESC* input_layout,int input_layout_count,ID3DBlob* vs_blob,ID3DBlob* fs_blob,bool depth_enable = false)
     {
         PipelineStateStream ppss = {}; 
         D3D12_RT_FORMAT_ARRAY rtv_formats = {};
@@ -683,7 +683,7 @@ namespace D12RendererCode
         CD3DX12_DEFAULT d = {};
 
         CD3DX12_DEPTH_STENCIL_DESC1 dss1 = CD3DX12_DEPTH_STENCIL_DESC1(d);
-        dss1.DepthEnable = false;
+        dss1.DepthEnable = depth_enable;
         CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL1 dss = CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL1(dss1);
         ppss.depth_stencil_state = dss;
         
