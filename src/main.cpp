@@ -72,8 +72,8 @@ void fmj_scene_process_children_recrusively(FMJSceneObject* so,u64 c_mat,u64 p_m
             com.material_id = m.material_id;
             com.texture_id = m.metallic_roughness_texture_id;
             com.model_matrix_id = m.matrix_id;
-            com.camera_matrix_id = 0;//rc_matrix_id;
-            com.perspective_matrix_id = 0;//projection_matrix_id;
+            com.camera_matrix_id = c_mat;
+            com.perspective_matrix_id = p_mat;
             fmj_stretch_buffer_push(&render_command_buffer,(void*)&com);
             fmj_stretch_buffer_check_in(&ctx->asset_tables->meshes);                    
         }
