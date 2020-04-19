@@ -20,10 +20,82 @@ extern "C"{
 
 #include "platform_win32.h"
 
+#include "fmj_scene.h"
 #include "assets.h"
+
+
 
 #include "koma.h"
 #include "ping_game.h"
+
+
+//BEGIN FMJSCENE TEST
+
+FMJSceneBuffer scenes;
+FMJStretchBuffer render_command_buffer;
+
+void fmj_scene_process_children_recrusively(FMJSceneObject* so,u64 c_mat,u64 p_mat,FMJAssetContext* ctx)
+{
+    //fmj_scene_process_children();k
+    for(int i = 0;i < so->children.buffer.fixed.count;++i)
+    {
+        FMJSceneObject* child_so = fmj_stretch_buffer_check_out(FMJSceneObject,&so->children.buffer,i);
+        fmj_3dtrans_update(&child_so->transform);
+        u64 mesh_id = (u64)child_so->data;
+        FMJAssetMesh* m_ = fmj_stretch_buffer_check_out(FMJAssetMesh,&ctx->asset_tables->meshes,mesh_id);
+        if(m_)
+        {
+            FMJAssetMesh  m = *m_;
+            //get mesh issue render command
+            FMJRenderCommand com = {};        
+            FMJRenderGeometry geo = {};
+            if(m.index32_count > 0)
+            {
+                com.is_indexed = true;
+                geo.buffer_id_range = m.mesh_resource.buffer_range;
+                geo.index_id = m.mesh_resource.index_id;
+                geo.index_count = m.index32_count;                
+            }
+            if(m.index16_count > 0)
+            {
+                com.is_indexed = true;
+                geo.buffer_id_range = m.mesh_resource.buffer_range;
+                geo.index_id = m.mesh_resource.index_id;
+                geo.index_count = m.index16_count;                
+            }
+            else
+            {
+                ASSERT(false);
+            }
+            geo.offset = 0;
+            com.geometry = geo;
+            com.material_id = m.material_id;
+            com.texture_id = m.metallic_roughness_texture_id;
+            com.model_matrix_id = m.matrix_id;
+            com.camera_matrix_id = 0;//rc_matrix_id;
+            com.perspective_matrix_id = 0;//projection_matrix_id;
+            fmj_stretch_buffer_push(&render_command_buffer,(void*)&com);
+            fmj_stretch_buffer_check_in(&ctx->asset_tables->meshes);                    
+        }
+    }
+}
+
+void fmj_scene_issue_render_commands(FMJScene* s,FMJAssetContext* ctx,u64 c_mat,u64 p_mat)
+{
+    //Start at root node
+    for(int i = 0;i < s->buffer.buffer.fixed.count;++i)
+    {
+        FMJSceneObject* so = fmj_stretch_buffer_check_out(FMJSceneObject,&s->buffer.buffer,i);
+//        if(so->type == scene_object_type_mesh)
+
+        if(so->children.buffer.fixed.count > 0)
+        {
+            
+            fmj_scene_process_children_recrusively(so,c_mat,p_mat,ctx);
+        }
+    }
+}
+//END FMJSCENETEST
 
 AssetTables asset_tables = {0};
 u64 material_count = 0;
@@ -107,8 +179,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     //init tables
     fmj_asset_init(&asset_tables);
 
-    FMJStretchBuffer render_command_buffer = fmj_stretch_buffer_init(1,sizeof(FMJRenderCommand),8);
-    FMJStretchBuffer matrix_buffer = fmj_stretch_buffer_init(1,sizeof(f4x4),8);
+    render_command_buffer = fmj_stretch_buffer_init(1,sizeof(FMJRenderCommand),8);
+
 
     
     //Load a texture with all mip maps calculated
@@ -227,9 +299,10 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     rc.near_far_planes = f2_create(0.1,1000);
     rc.projection_matrix = init_pers_proj_matrix(ps->window.dim,rc.fov,rc.near_far_planes);
     rc.matrix = f4x4_identity();
-    
-    u64 projection_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,(void*)&rc.projection_matrix);
-    u64 rc_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,(void*)&rc.matrix);
+
+    FMJStretchBuffer* matrix_buffer = &asset_tables.matrix_buffer;
+    u64 projection_matrix_id = fmj_stretch_buffer_push(matrix_buffer,(void*)&rc.projection_matrix);
+    u64 rc_matrix_id = fmj_stretch_buffer_push(matrix_buffer,(void*)&rc.matrix);
     
     RenderCamera rc_ui = {};
     rc_ui.ot.p = f3_create(0,0,0);
@@ -238,8 +311,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     rc_ui.projection_matrix = init_screen_space_matrix(ps->window.dim);
     rc_ui.matrix = f4x4_identity();
     
-    u64 screen_space_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,(void*)&rc_ui.projection_matrix);
-    u64 identity_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,(void*)&rc_ui.matrix);
+    u64 screen_space_matrix_id = fmj_stretch_buffer_push(matrix_buffer,(void*)&rc_ui.projection_matrix);
+    u64 identity_matrix_id = fmj_stretch_buffer_push(matrix_buffer,(void*)&rc_ui.matrix);
 //end camera setup
 
     //some memory setup
@@ -328,25 +401,28 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     asset_ctx.perm_mem = &permanent_strings;
     asset_ctx.temp_mem = &temp_strings;    
 
-//    FMJAssetModel test_model = fmj_asset_load_model_from_glb(&asset_ctx,"../data/models/BoxTextured.glb",color_render_material_mesh.id);
+//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/BoxTextured.glb",color_render_material_mesh.id);
 //    FMJAssetModel test_model = fmj_asset_load_model_from_glb(&asset_ctx,"../data/models/Box.glb",color_render_material_mesh.id);
-//    FMJAssetModel test_model = fmj_asset_load_model_from_glb(&asset_ctx,"../data/models/Avocado.glb",color_render_material_mesh.id);//scale is messed up and uvs
+//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Avocado.glb",color_render_material_mesh.id);//scale is messed up and uvs
 //    FMJAssetModel test_model = fmj_asset_load_model_from_glb(&asset_ctx,"../data/models/Fox.glb",color_render_material_mesh.id);        //no indices 16
-//    FMJAssetModel test_model = fmj_asset_load_model_from_glb(&asset_ctx,"../data/models/Duck.glb",color_render_material_mesh.id);//scale is messed up and uvs
+//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Duck.glb",color_render_material_mesh.id);//scale is messed up and uvs
 //    FMJAssetModel test_model = fmj_asset_load_model_from_glb(&asset_ctx,"../data/models/2CylinderEngine.glb",color_render_material_mesh.id);//crashes
-//    FMJAssetModel test_model = fmj_asset_load_model_from_glb(&asset_ctx,"../data/models/BarramundiFish.glb",color_render_material_mesh.id);//
-    FMJAssetModel test_model = fmj_asset_load_model_from_glb(&asset_ctx,"../data/models/Lantern.glb",color_render_material_mesh.id);//crashes        
+//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/BarramundiFish.glb",color_render_material_mesh.id);//
+    InitSceneBuffer(&scenes);
+    u64 scene_id = CreateEmptyScene(&scenes);
+    FMJScene* test_scene = fmj_stretch_buffer_check_out(FMJScene,&scenes.buffer,scene_id);
+    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Lantern.glb",color_render_material_mesh.id,&test_scene->buffer);//crashes        
+    FMJAssetModel test_model = test_model_result.model;
 
-    FMJAssetMesh* test_mesh = fmj_stretch_buffer_check_out(FMJAssetMesh,&test_model.meshes,0);
-    
     fmj_asset_upload_model(&asset_tables,&asset_ctx,&test_model);
-    FMJ3DTrans test_mesh_t;
-    fmj_3dtrans_init(&test_mesh_t);
-    test_mesh_t.p = f3_create(0,0,-5);
-    test_mesh_t.s = f3_create_f(1);
-    fmj_3dtrans_update(&test_mesh_t);    
+
     
-    u64 test_mesh_model_matrix_id = fmj_stretch_buffer_push(&matrix_buffer,&test_mesh_t.m);
+//    fmj_3dtrans_init(&test_mesh_t);
+//    test_mesh_t.p = f3_create(0,0,-5);
+//    test_mesh_t.s = f3_create_f(0.01f);
+//    test_mesh_t.r = f3_axis_angle(f3_create(0,0,1),0);
+//    fmj_3dtrans_update(&test_mesh_t);    
+    
 //end game object setup
 
     //ui  evaulation
@@ -409,15 +485,15 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             fmj_ui_evaluate_on_node_recursively(&base_node,SetSpriteNonVisible);
         }
 
-        test_mesh_t.r = f3_axis_angle(f3_create(0,1,0),angle);
-        fmj_3dtrans_update(&test_mesh_t);    
-        angle += 0.01f;
+//        test_mesh_t.r = f3_axis_angle(f3_create(0,1,0),angle);
+//        fmj_3dtrans_update(&test_mesh_t);    
+//        angle += 0.01f;
         
-        f4x4* tmt = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,test_mesh_model_matrix_id);        
-        *tmt = test_mesh_t.m;
+//        f4x4* tmt = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,test_mesh_model_matrix_id);        
+//        *tmt = test_mesh_t.m;
 
         //modify camera matrix
-        f4x4* p_mat_ = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,projection_matrix_id);
+        f4x4* p_mat_ = fmj_stretch_buffer_check_out(f4x4,matrix_buffer,projection_matrix_id);
 #if 0
         size.x = abs(sin(size_sin)) * 300;
         size.y = abs(cos(size_sin)) * 300;
@@ -431,7 +507,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 #endif
         f4x4 p_mat = *p_mat_;
         p_mat_ = nullptr;
-        fmj_stretch_buffer_check_in(&matrix_buffer);
+        fmj_stretch_buffer_check_in(matrix_buffer);
 //end render camera modify
 
         SoundCode::ContinousPlay(&bgm_soundclip);
@@ -445,17 +521,23 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         rc.ot.r = turn_qt;
 #endif
         rc.matrix = fmj_3dtrans_set_cam_view(&rc.ot);
-        f4x4* rc_mat = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,rc_matrix_id);
+        f4x4* rc_mat = fmj_stretch_buffer_check_out(f4x4,matrix_buffer,rc_matrix_id);
         *rc_mat = rc.matrix;
-        fmj_stretch_buffer_check_in(&matrix_buffer);
+        fmj_stretch_buffer_check_in(matrix_buffer);
 //End game code
 
 //Render command creation(Render pass setup)
 
+        fmj_scene_issue_render_commands(test_scene,&asset_ctx,rc_matrix_id,projection_matrix_id);
+            
+#if 0
         for(int i = 0;i < test_model.meshes.fixed.count;++i)
         {
+            
             FMJRenderCommand com = {};
-            FMJAssetMesh m = fmj_stretch_buffer_get(FMJAssetMesh,&test_model.meshes,i);
+            u64* mesh_id = fmj_stretch_buffer_check_out(u64,&test_model.meshes,i);
+            ASSERT(mesh_id);
+            FMJAssetMesh m = fmj_stretch_buffer_get(FMJAssetMesh,&test_model.meshes,*mesh_id);
             FMJRenderGeometry geo = {};
             if(m.index32_count > 0)
             {
@@ -479,12 +561,13 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             com.geometry = geo;
             com.material_id = m.material_id;
             com.texture_id = m.metallic_roughness_texture_id;
-            com.model_matrix_id = test_mesh_model_matrix_id;
+            com.model_matrix_id = m.matrix_id;
             com.camera_matrix_id = rc_matrix_id;
             com.perspective_matrix_id = projection_matrix_id;
             fmj_stretch_buffer_push(&render_command_buffer,(void*)&com);            
         }
-                
+#endif
+        
         for(int i = 0;i < fixed_quad_buffer.count;++i)
         {
             FMJRenderCommand com = {};
@@ -541,9 +624,9 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             {
                 FMJRenderCommand command = fmj_stretch_buffer_get(FMJRenderCommand,&render_command_buffer,i);
                 {
-                    f4x4 m_mat = fmj_stretch_buffer_get(f4x4,&matrix_buffer,command.model_matrix_id);
-                    f4x4 c_mat = fmj_stretch_buffer_get(f4x4,&matrix_buffer,command.camera_matrix_id);
-                    f4x4 p_mat = fmj_stretch_buffer_get(f4x4,&matrix_buffer,command.perspective_matrix_id);
+                    f4x4 m_mat = fmj_stretch_buffer_get(f4x4,matrix_buffer,command.model_matrix_id);
+                    f4x4 c_mat = fmj_stretch_buffer_get(f4x4,matrix_buffer,command.camera_matrix_id);
+                    f4x4 p_mat = fmj_stretch_buffer_get(f4x4,matrix_buffer,command.perspective_matrix_id);
                     f4x4 world_mat = f4x4_mul(c_mat,m_mat);
                     f4x4 finalmat = f4x4_mul(p_mat,world_mat);
                     m_mat.c0.x = (f32)(matrix_quad_buffer.count * sizeof(f4x4));

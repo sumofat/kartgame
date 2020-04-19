@@ -20,14 +20,14 @@ GameState game_state;
 
 bool prev_lmb_state = false;
 
-//Game specific
 void SetSpriteNonVisible(void* node)
 {
     FMJUINode* a = (FMJUINode*)node;
     SpriteTrans* st = fmj_fixed_buffer_get_ptr(SpriteTrans,&ui_fixed_quad_buffer,a->st_id);    
     st->sprite.is_visible = false;
 }
-//end game specific
+
+
 
 
 

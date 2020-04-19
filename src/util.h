@@ -10,13 +10,15 @@
 
 void get_image_from_disc(char* file,LoadedTexture* loaded_texture,int desired_channels)
 {
-    stbi_set_flip_vertically_on_load(true);
+
+    
     int dimx;
     int dimy;
     //NOTE(Ray):Depends on your pipeline wether or not you will need this or not.
 #if IOS
     //    stbi_convert_iphone_png_to_rgb(0);
     //    stbi_set_unpremultiply_on_load(1);
+    stbi_set_flip_vertically_on_load(true);    
 #endif
     int comp;
     stbi_info(file,&dimx, &dimy, &comp);
@@ -36,13 +38,14 @@ void get_image_from_disc(char* file,LoadedTexture* loaded_texture,int desired_ch
 
 void get_image_from_mem(void* ptr,u64 size,LoadedTexture* loaded_texture,int desired_channels)
 {
-    stbi_set_flip_vertically_on_load(true);
+
     int dimx;
     int dimy;
     //NOTE(Ray):Depends on your pipeline wether or not you will need this or not.
 #if IOS
     //    stbi_convert_iphone_png_to_rgb(0);
     //    stbi_set_unpremultiply_on_load(1);
+    stbi_set_flip_vertically_on_load(true);    
 #endif
     int comp;
     stbi_info_from_memory((u8*)ptr,size,&dimx, &dimy, &comp);
