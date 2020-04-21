@@ -67,9 +67,9 @@ struct FMJAssetModelLoadResult
 {
     bool is_success;
     FMJAssetModel model;
-    FMJSceneObject* scene_object;
+    FMJSceneObject scene_object;
 };
- 
+
 void fmj_asset_init(AssetTables* asset_tables);
 FMJAssetModel fmj_asset_model_create(FMJAssetContext* ctx);
 u64 fmj_asset_texture_add(FMJAssetContext* ctx,LoadedTexture texture);

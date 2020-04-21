@@ -278,6 +278,7 @@ void fmj_asset_load_meshes_recursively_gltf_node_(FMJAssetModelLoadResult* resul
     for(int i = 0;i < node->children_count;++i)
     {
         cgltf_node* child = node->children[i];
+
         FMJ3DTrans trans = {};
         fmj_3dtrans_init(&trans);
 
@@ -304,34 +305,40 @@ void fmj_asset_load_meshes_recursively_gltf_node_(FMJAssetModelLoadResult* resul
         trans.m = out_mat;                    
 
         s32 mesh_id = -1;
+        u32 type = 0;
         if(child->mesh)
         {
             result->model.model_name = fmj_string_create((char*)file_path,ctx->perm_mem);                
-            FMJAssetMesh mesh = fmj_asset_create_mesh_from_cgltf_mesh(ctx,child->mesh);
 
+            FMJAssetMesh mesh = fmj_asset_create_mesh_from_cgltf_mesh(ctx,child->mesh);
             mesh.transform = trans;
             mesh.material_id = material_id;
+            
             mesh.matrix_id = fmj_stretch_buffer_push(&ctx->asset_tables->matrix_buffer,&trans.m);
             mesh.id = ctx->asset_tables->meshes.fixed.count;
             mesh_id = (s32)mesh.id;
             fmj_stretch_buffer_push(&result->model.meshes,&mesh.id);            
             fmj_stretch_buffer_push(&ctx->asset_tables->meshes,&mesh);
+            type = 1;
         }
         
-        void* mptr = (void*)mesh_id;        
+        void* mptr = (void*)mesh_id;
+//add node to parent        
         u64 child_id = AddChildToSceneObject(ctx,so,&trans,&mptr);
         FMJSceneObject* child_so = fmj_stretch_buffer_check_out(FMJSceneObject,&so->children.buffer,child_id);
+        child_so->type = type;
         fmj_asset_load_meshes_recursively_gltf_node_(result,child,ctx,file_path, material_id,child_so);
         fmj_stretch_buffer_check_in(&so->children.buffer);                    
     }
 }
 
-FMJAssetModelLoadResult fmj_asset_load_model_from_glb_2(FMJAssetContext* ctx,const char* file_path,u32  material_id,FMJSceneObjectBuffer* sob,u64 parent_id)
+//TODO(Ray):We dont need rendering info such as matrices pushes for this as its
+//just a template to use to build a model "instance"
+FMJAssetModelLoadResult fmj_asset_load_model_from_glb_2(FMJAssetContext* ctx,const char* file_path,u32  material_id)
 {
     FMJAssetModelLoadResult result = {};
     bool is_success = false;
 
-    FMJSceneObject* parent_so = fmj_stretch_buffer_check_out(FMJSceneObject,&sob->buffer,parent_id);
     cgltf_options options = {};
     cgltf_data* data = NULL;
     cgltf_result aresult = cgltf_parse_file(&options,file_path, &data);
@@ -353,12 +360,13 @@ FMJAssetModelLoadResult fmj_asset_load_model_from_glb_2(FMJAssetContext* ctx,con
 
             u64 p_matrix_id = fmj_stretch_buffer_push(&ctx->asset_tables->matrix_buffer,&parent_trans.m);
             void* p_mptr = (void*)p_matrix_id;
-            u64 model_root_id = AddChildToSceneObject(ctx,parent_so,&parent_trans,&p_mptr);
-//            u64 root_node_id = AddSceneObject(ctx,&parent_so->children,f3_create_f(0),quaternion_identity(),f3_create_f(1));
-            FMJSceneObject* model_root_so = fmj_stretch_buffer_check_out(FMJSceneObject,&parent_so->children.buffer,model_root_id);
-            result.scene_object = model_root_so;
+
+            FMJSceneObject model_root_so = {};
+            fmj_scene_object_buffer_init(&model_root_so.children);
+
             for(int i = 0;i < data->nodes_count;++i)
             {
+
                 cgltf_node* child = &data->nodes[i];
                 FMJ3DTrans trans = {};
                 fmj_3dtrans_init(&trans);
@@ -366,7 +374,6 @@ FMJAssetModelLoadResult fmj_asset_load_model_from_glb_2(FMJAssetContext* ctx,con
                 f4x4 out_mat = f4x4_identity();
                 if(child->has_matrix)
                 {
-                    
                     out_mat = f4x4_create(child->matrix[0],child->matrix[1],child->matrix[2],child->matrix[3],
                                           child->matrix[4],child->matrix[5],child->matrix[6],child->matrix[7],
                                           child->matrix[8],child->matrix[9],child->matrix[10],child->matrix[11],
@@ -387,21 +394,21 @@ FMJAssetModelLoadResult fmj_asset_load_model_from_glb_2(FMJAssetContext* ctx,con
 
                 u64 matrix_id = fmj_stretch_buffer_push(&ctx->asset_tables->matrix_buffer,&trans.m);
                 void* mptr = (void*)matrix_id;
-                
-                fmj_asset_load_meshes_recursively_gltf_node_(&result,child,ctx,file_path,material_id,model_root_so);
-                u64 child_id = AddChildToSceneObject(ctx,model_root_so,&trans,&mptr);
-                FMJSceneObject* child_so = fmj_stretch_buffer_check_out(FMJSceneObject,&model_root_so->children.buffer,child_id);
+                u64 child_id = AddChildToSceneObject(ctx,&model_root_so,&trans,&mptr);
+                FMJSceneObject* child_so = fmj_stretch_buffer_check_out(FMJSceneObject,&model_root_so.children.buffer,child_id);
                 child_so->m_id = matrix_id;
-                fmj_stretch_buffer_check_in(&model_root_so->children.buffer);
+                
+                fmj_asset_load_meshes_recursively_gltf_node_(&result,child,ctx,file_path,material_id,child_so);
+
+                fmj_stretch_buffer_check_in(&model_root_so.children.buffer);
             }
-            fmj_stretch_buffer_check_in(&parent_so->children.buffer);
+            result.scene_object = model_root_so;            
         }
         
         if(!is_success)
         {
 //            ASSERT(false);
         }
-        fmj_stretch_buffer_check_in(&sob->buffer);            
         cgltf_free(data);
     }
     return result;        
@@ -528,5 +535,60 @@ void fmj_asset_upload_model(AssetTables* asset_tables,FMJAssetContext*ctx,FMJAss
     }
 }
 
+FMJStretchBuffer fmj_asset_copy_buffer(FMJStretchBuffer* in)
+{
+    ASSERT(in);
+    FMJStretchBuffer result = {};
+    if(in->fixed.mem_arena.size > 0)
+    {
+        result = fmj_stretch_buffer_init(in->fixed.count,in->fixed.unit_size,in->fixed.alignment);;
+        result.fixed.count = in->fixed.count;
+        result.fixed.total_size = in->fixed.total_size;
+        memcpy(result.fixed.mem_arena.base,in->fixed.mem_arena.base,in->fixed.mem_arena.size);        
+    }
+    return result;
+}
+
+FMJSceneObject fmj_asset_copy_scene_object(FMJAssetContext* ctx,FMJSceneObject* so)
+{
+    FMJSceneObject result = {};
+    result.children.buffer = fmj_asset_copy_buffer(&so->children.buffer);
+    result.transform = so->transform;
+    result.m_id = fmj_stretch_buffer_push(&ctx->asset_tables->matrix_buffer,&result.transform.m);
+    result.data = so->data;
+    result.type = so->type;
+    return result;
+}
+
+void fmj_asset_copy_model_data_recursively_(FMJAssetContext* ctx,FMJSceneObject* dest,FMJSceneObject* src)
+{
+    for(int i = 0;i < src->children.buffer.fixed.count;++i)
+    {
+        FMJSceneObject* child_so = fmj_stretch_buffer_check_out(FMJSceneObject,&src->children.buffer,i);
+        FMJSceneObject new_child_dest = fmj_asset_copy_scene_object(ctx,child_so);
+        u64 dest_id = fmj_stretch_buffer_push(&dest->children.buffer,&new_child_dest);
+        FMJSceneObject* new_child = fmj_stretch_buffer_check_out(FMJSceneObject,&dest->children.buffer,dest_id);
+        fmj_asset_copy_model_data_recursively_(ctx,new_child,child_so);
+        fmj_stretch_buffer_check_in(&src->children.buffer);
+        fmj_stretch_buffer_check_in(&dest->children.buffer);        
+    }
+}
+
+FMJSceneObject fmj_asset_create_model_instance(FMJAssetContext*ctx,FMJAssetModelLoadResult* model)
+{
+    ASSERT(model);
+    FMJSceneObject src = model->scene_object;
+    FMJSceneObject dest = fmj_asset_copy_scene_object(ctx,&src);
+//    int handle = fmj_stretch_buffer_push(&so->children.buffer,&model_copy_so);
+    for(int i = 0;i < src.children.buffer.fixed.count;++i)
+    {
+        FMJSceneObject* src_child_so = fmj_stretch_buffer_check_out(FMJSceneObject,&src.children.buffer,i);
+        FMJSceneObject* dest_child_so = fmj_stretch_buffer_check_out(FMJSceneObject,&dest.children.buffer,i);
+        fmj_asset_copy_model_data_recursively_(ctx,dest_child_so,src_child_so);
+        fmj_stretch_buffer_check_in(&src.children.buffer);
+        fmj_stretch_buffer_check_in(&dest.children.buffer);
+    }
+    return dest;
+}
 
 

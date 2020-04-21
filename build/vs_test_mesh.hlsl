@@ -41,7 +41,7 @@ VertexShaderOutput main(VertexPosColor IN)
                  m1.x,m1.y,m1.z,m1.w,
 	         m2.x,m2.y,m2.z,m2.w,
 	         m3.x,m3.y,m3.z,m3.w};
-
+    m = WorldProjectionCB.MVP;
 //m = transpose(m);
 
     float4 world_p = mul(float4(IN.Position,1.0f),m);

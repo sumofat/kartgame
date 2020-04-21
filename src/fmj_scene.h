@@ -27,7 +27,7 @@ struct FMJSceneObject
 {
     FMJ3DTrans transform;
     FMJSceneObjectBuffer children;
-    FMJSceneObject* parent;
+//    FMJSceneObject* parent;
     u64 m_id;//matrix id refers to asset table matrix buffer
     u32 type;//user defined type
     void* data;//user defined data typically ptr to a game object etcc...
@@ -108,7 +108,7 @@ u64 AddChildToSceneObject(FMJAssetContext* ctx,FMJSceneObject* so,FMJ3DTrans* ne
     new_so.children = {};
     new_so.transform = *new_child;
     new_so.m_id = fmj_stretch_buffer_push(&ctx->asset_tables->matrix_buffer,&new_so.transform.m);    
-    new_so.parent = so;
+    //new_so.parent = so;
     new_so.data = *data;
     int handle = fmj_stretch_buffer_push(&so->children.buffer,&new_so);
     return handle;
@@ -154,11 +154,12 @@ void UpdateSceneObjects(FMJSceneObjectBuffer* buffer,f3* position_sum,quaternion
         fmj_3dtrans_update(parent_ot);
         f3 current_p_sum = *position_sum;
         current_p_sum = f3_add(current_p_sum,parent_ot->p);
-        *rotation_product = parent_ot->r;
+        *rotation_product = parent_ot->local_r;
         UpdateChildren(so, &current_p_sum, rotation_product);        
     }
 }
 
+#if 0
 void SetWorldP(FMJSceneObject* so,f3 p)
 {
     ASSERT(so);
@@ -174,6 +175,7 @@ void SetWorldR(FMJSceneObject* so,quaternion r)
     so->transform.r = r;
 //    so->flags |= 0x02;
 }
+#endif
 
 ///SCENE CODE
 void InitSceneBuffer(FMJSceneBuffer* buffer)
@@ -222,7 +224,12 @@ u64 AddModelToSceneObjectAsChild(FMJAssetContext* ctx,FMJSceneObject* so,FMJScen
     new_child.local_p = new_child.p;
     new_child.local_s = new_child.s;
     new_child.local_r = new_child.r;
+
+    model_so->transform = new_child;
+    //model_so->parent = so;
+    int handle = fmj_stretch_buffer_push(&so->children.buffer,model_so);
     
+/*
     FMJSceneObject new_so = {};
     new_so.transform = new_child;
     new_so.children.buffer = fmj_stretch_buffer_init(model_so->children.buffer.fixed.count,sizeof(FMJSceneObject),8);
@@ -233,9 +240,10 @@ u64 AddModelToSceneObjectAsChild(FMJAssetContext* ctx,FMJSceneObject* so,FMJScen
     new_so.m_id = fmj_stretch_buffer_push(&ctx->asset_tables->matrix_buffer,&new_so.transform.m);
     new_so.data = nullptr;
     int handle = fmj_stretch_buffer_push(&so->children.buffer,&new_so);
-
-    f3 ps = f3_add(so->transform.p,new_child.p);
-    quaternion q = quaternion_mul(so->transform.r,new_child.r);
+*/
+    
+//    f3 ps = f3_add(so->transform.p,new_child.p);
+//    quaternion q = quaternion_mul(so->transform.r,new_child.r);
 //    UpdateSceneObjects(&new_so.children, &ps,&q);        
     return handle;        
 }

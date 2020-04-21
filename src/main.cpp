@@ -63,49 +63,49 @@ void fmj_scene_process_children_recrusively(FMJSceneObject* so,u64 c_mat,u64 p_m
         *final_mat = child_so->transform.m;
         fmj_stretch_buffer_check_in(&ctx->asset_tables->matrix_buffer);
         u64 mesh_id = (u64)child_so->data;
-        if(mesh_id < 0)
+        if(child_so->type != 0)//non mesh type
         {
-            continue;
-        }
-        FMJAssetMesh* m_ = fmj_stretch_buffer_check_out(FMJAssetMesh,&ctx->asset_tables->meshes,mesh_id);
-        if(m_)
-        {
-            FMJAssetMesh  m = *m_;
-            //get mesh issue render command
-            FMJRenderCommand com = {};        
-            FMJRenderGeometry geo = {};
-            if(m.index32_count > 0)
+            FMJAssetMesh* m_ = fmj_stretch_buffer_check_out(FMJAssetMesh,&ctx->asset_tables->meshes,mesh_id);
+            if(m_)
             {
-                com.is_indexed = true;
-                geo.buffer_id_range = m.mesh_resource.buffer_range;
-                geo.index_id = m.mesh_resource.index_id;
-                geo.index_count = m.index32_count;                
-            }
-            else if(m.index16_count > 0)
-            {
-                com.is_indexed = true;
-                geo.buffer_id_range = m.mesh_resource.buffer_range;
-                geo.index_id = m.mesh_resource.index_id;
-                geo.index_count = m.index16_count;                
-            }
-            else
-            {
-                com.is_indexed = false;
-                geo.buffer_id_range = m.mesh_resource.buffer_range;
-                geo.index_id = m.mesh_resource.index_id;
-                geo.count = m.vertex_count;
-            }
+                FMJAssetMesh  m = *m_;
+                //get mesh issue render command
+                FMJRenderCommand com = {};        
+                FMJRenderGeometry geo = {};
+                if(m.index32_count > 0)
+                {
+                    com.is_indexed = true;
+                    geo.buffer_id_range = m.mesh_resource.buffer_range;
+                    geo.index_id = m.mesh_resource.index_id;
+                    geo.index_count = m.index32_count;                
+                }
+                else if(m.index16_count > 0)
+                {
+                    com.is_indexed = true;
+                    geo.buffer_id_range = m.mesh_resource.buffer_range;
+                    geo.index_id = m.mesh_resource.index_id;
+                    geo.index_count = m.index16_count;                
+                }
+                else
+                {
+                    com.is_indexed = false;
+                    geo.buffer_id_range = m.mesh_resource.buffer_range;
+                    geo.index_id = m.mesh_resource.index_id;
+                    geo.count = m.vertex_count;
+                }
             
-            geo.offset = 0;
-            com.geometry = geo;
-            com.material_id = m.material_id;
-            com.texture_id = m.metallic_roughness_texture_id;
-            com.model_matrix_id = child_so->m_id;
-            com.camera_matrix_id = c_mat;
-            com.perspective_matrix_id = p_mat;
-            fmj_stretch_buffer_push(&render_command_buffer,(void*)&com);
-            fmj_stretch_buffer_check_in(&ctx->asset_tables->meshes);                    
+                geo.offset = 0;
+                com.geometry = geo;
+                com.material_id = m.material_id;
+                com.texture_id = m.metallic_roughness_texture_id;
+                com.model_matrix_id = child_so->m_id;
+                com.camera_matrix_id = c_mat;
+                com.perspective_matrix_id = p_mat;
+                fmj_stretch_buffer_push(&render_command_buffer,(void*)&com);
+                fmj_stretch_buffer_check_in(&ctx->asset_tables->meshes);                    
+            }
         }
+
         fmj_scene_process_children_recrusively(child_so,c_mat,p_mat,ctx);
     }
 }
@@ -454,7 +454,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     u64 root_node_id = AddSceneObject(&asset_ctx,&test_scene->buffer,f3_create_f(0),quaternion_identity(),f3_create_f(1));
     FMJSceneObject* root_node = fmj_stretch_buffer_check_out(FMJSceneObject,&test_scene->buffer.buffer,root_node_id);
     fmj_scene_object_buffer_init(&root_node->children);
-    fmj_stretch_buffer_check_in(&test_scene->buffer.buffer);
+
 //    fmj_stretch_buffer_check_in();
     
 //    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/BoxTextured.glb",color_render_material_mesh.id);
@@ -465,20 +465,35 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 //    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/BarramundiFish.glb",color_render_material_mesh.id);//
 
 //    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Fox.glb",vu_render_material_mesh.id,&test_scene->buffer);        //no indices 16    
-    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Lantern.glb",color_render_material_mesh.id,&test_scene->buffer,root_node_id);//crashes        
+    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Lantern.glb",color_render_material_mesh.id);//crashes        
 //    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Duck.glb",color_render_material_mesh.id,&test_scene->buffer);//scale is messed up and uvs    
     FMJAssetModel test_model = test_model_result.model;
     fmj_asset_upload_model(&asset_tables,&asset_ctx,&test_model);
     
 //    FMJSceneObject* test_so = fmj_stretch_buffer_check_out(FMJSceneObject,&test_scene->buffer.buffer,0);
-
+    FMJSceneObject model_instance = fmj_asset_create_model_instance(&asset_ctx,&test_model_result);
+    FMJSceneObject model_instance_2 = fmj_asset_create_model_instance(&asset_ctx,&test_model_result);    
     FMJ3DTrans new_trans;
     fmj_3dtrans_init(&new_trans);
-    new_trans.p = f3_create(-8,0,0);
+    new_trans.p = f3_create(0,-10,-25);
     
-//    u64 test_child_so_id = AddModelToSceneObjectAsChild(&asset_ctx,root_node,test_model_result.scene_object,new_trans);
+    u64 test_child_so_id = AddModelToSceneObjectAsChild(&asset_ctx,root_node,&model_instance,new_trans);
 
-//    FMJSceneObject* child_test_so = fmj_stretch_buffer_check_out(FMJSceneObject,&test_so->children.buffer,test_child_so_id);
+
+    
+    FMJ3DTrans new_trans_2;
+    fmj_3dtrans_init(&new_trans_2);
+    new_trans_2.p = f3_create(-10,-10,-25);
+    u64 test_child_so_id_2 = AddModelToSceneObjectAsChild(&asset_ctx,root_node,&model_instance_2,new_trans_2);
+
+    FMJSceneObject* child_test_so = fmj_stretch_buffer_check_out(FMJSceneObject,&root_node->children.buffer,test_child_so_id);
+    FMJSceneObject* child_test_so_2 = fmj_stretch_buffer_check_out(FMJSceneObject,&root_node->children.buffer,test_child_so_id_2);
+//    new_trans.p = f3_create(-10,-10,-25);
+//    u64 test_child_so_id_2 = AddModelToSceneObjectAsChild(&asset_ctx,root_node,&model_instance_2,new_trans);
+
+    
+//    fmj_stretch_buffer_check_in(&test_scene->buffer.buffer);
+
     
 //    test_mesh_t.p = f3_create(0,0,-5);
 //    test_mesh_t.s = f3_create_f(0.01f);
@@ -550,11 +565,13 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             fmj_ui_evaluate_on_node_recursively(&base_node,SetSpriteNonVisible);
         }
 
-        test_model_result.scene_object->transform.local_p = f3_create(0,-10,-25);
-        test_model_result.scene_object->transform.local_r = f3_axis_angle(f3_create(0,0,1),angle);
+//        test_model_result.scene_object.transform.local_p = f3_create(0,-10,-25);
+//        test_model_result.scene_object.transform.local_r = f3_axis_angle(f3_create(0,0,1),angle);
 //        test_model_result.scene_object->transform.p = f3_create(0,-10,-25);
-
-//        child_test_so->transform.p = f3_create(-10,-10,-25);        
+        root_node->transform.local_r = f3_axis_angle(f3_create(0,0,1),angle);
+//        child_test_so->transform.local_r = f3_axis_angle(f3_create(0,0,1),angle);
+        child_test_so_2->transform.local_r = f3_axis_angle(f3_create(0,1,0),angle);        
+//        child_test_so->transform. = f3_create(-10,-10,-25);        
 //        child_test_so->transform.r = 
         angle += 0.01f;
         
