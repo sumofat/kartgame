@@ -1,5 +1,4 @@
 
-
 void fmj_asset_init(AssetTables* asset_tables)
 {
     asset_tables->materials = fmj_anycache_init(4096,sizeof(FMJRenderMaterial),sizeof(u64),true);                                  
@@ -33,13 +32,18 @@ u64 fmj_asset_texture_add(FMJAssetContext* ctx,LoadedTexture texture)
     return tex_id;
 }
 
-FMJAssetMesh fmj_asset_create_mesh_from_cgltf_mesh(FMJAssetContext* ctx,cgltf_mesh* ma)
+f2 fmj_asset_create_mesh_from_cgltf_mesh(FMJAssetContext* ctx,cgltf_mesh* ma,u64 material_id)
 {
     ASSERT(ma);
-    FMJAssetMesh mesh = {};
+
+    u32 mesh_id = ctx->asset_tables->meshes.fixed.count;    
+    f2 result = f2_create(mesh_id,mesh_id);
+
     //Extract mesh binary data
     for(int j = 0;j < ma->primitives_count;++j)
     {
+        
+        FMJAssetMesh mesh = {};
         cgltf_primitive prim = ma->primitives[j];
         cgltf_material* mat  = prim.material;
 
@@ -128,40 +132,36 @@ FMJAssetMesh fmj_asset_create_mesh_from_cgltf_mesh(FMJAssetContext* ctx,cgltf_me
             //Get indices
             if(prim.indices)
             {
+                u64 istart_offset = prim.indices->offset + prim.indices->buffer_view->offset;
+                cgltf_buffer* ibuf = prim.indices->buffer_view->buffer;                
                 if(prim.indices->component_type == cgltf_component_type_r_16u)
                 {
-                    cgltf_buffer_view* ibf = prim.indices->buffer_view;
-                    {
-                        u64 istart_offset = ibf->offset;
-                        cgltf_buffer* ibuf = ibf->buffer;
-                        u16* indices_buffer = (uint16_t*)((uint8_t*)ibuf->data + istart_offset);
-                        u16* outindex_f = (u16*)malloc(ibf->size);
-                        memcpy(outindex_f,indices_buffer,ibf->size);
-                        mesh.index_16_data = outindex_f;
-                        mesh.index_16_data_size = ibf->size;
-                        mesh.index16_count = prim.indices->count;                    
-                    }
+                    u64 indices_size =  (u64)prim.indices->count * sizeof(u16);
+                    u16* indices_buffer = (u16*)((uint8_t*)ibuf->data + istart_offset);
+                    u16* outindex_f = (u16*)malloc(indices_size);
+                    
+                    memcpy(outindex_f,indices_buffer,indices_size);
+                    mesh.index_16_data = outindex_f;
+                    mesh.index_16_data_size = sizeof(u16) * prim.indices->count;
+                    mesh.index16_count = prim.indices->count;                    
                 }
+
                 else if(prim.indices->component_type == cgltf_component_type_r_32u)
                 {
-                    cgltf_buffer_view* ibf = prim.indices->buffer_view;
-                    {
-                        u64 istart_offset = ibf->offset;
-                        cgltf_buffer* ibuf = ibf->buffer;
-                        u32* indices_buffer = (uint32_t*)((uint8_t*)ibuf->data + istart_offset);
-                        u32* outindex_f = (u32*)malloc(ibf->size);
-                        memcpy(outindex_f,indices_buffer,ibf->size);
-                        mesh.index_32_data = outindex_f;
-                        mesh.index_32_data_size = ibf->size;
-                        mesh.index32_count = prim.indices->count;                    
-                    }
+                    u64 indices_size =  (u64)prim.indices->count * sizeof(u32);
+                    u32* indices_buffer = (u32*)((uint8_t*)ibuf->data + istart_offset);
+                    u32* outindex_f = (u32*)malloc(indices_size);
+
+                    memcpy(outindex_f,indices_buffer,indices_size);
+                    mesh.index_32_data = outindex_f;
+                    mesh.index_32_data_size = sizeof(u32) * prim.indices->count;
+                    mesh.index32_count = prim.indices->count;                    
                 }
             }
             
             for(int k = 0;k < prim.attributes_count;++k)
             {
                 cgltf_attribute ac = prim.attributes[k];
-
                 
                 //Get verts
                 cgltf_accessor* acdata = ac.data;
@@ -174,10 +174,8 @@ FMJAssetMesh fmj_asset_create_mesh_from_cgltf_mesh(FMJAssetContext* ctx,cgltf_me
                     cgltf_buffer* buf = bf->buffer;
                     float* buffer = (float*)((uint8_t*)buf->data + start_offset);
 
-
                     if (acdata->is_sparse)
                     {
-
                         ASSERT(false);
                     }
 
@@ -185,92 +183,54 @@ FMJAssetMesh fmj_asset_create_mesh_from_cgltf_mesh(FMJAssetContext* ctx,cgltf_me
                     cgltf_size num_bytes = sizeof(f32) * num_floats;                
                     cgltf_float* outf = (cgltf_float*)malloc(num_bytes);
                     cgltf_size csize = cgltf_accessor_unpack_floats(acdata,outf,num_floats);
-                    
+
                     if(ac.type == cgltf_attribute_type_position)
                     {
                         mesh.vertex_data = outf;
-                        mesh.vertex_data_size = bf->size;
-                        mesh.vertex_count = count * 3;
+                        mesh.vertex_data_size = num_bytes;
+                        mesh.vertex_count = count;
                     }
 
                     else if(ac.type == cgltf_attribute_type_normal)
                     {
                         mesh.normal_data = outf;
-                        mesh.normal_data_size = bf->size;
-                        mesh.normal_count = count * 3;
+                        mesh.normal_data_size = num_bytes;
+                        mesh.normal_count = count;
                     }
 
                     else if(ac.type == cgltf_attribute_type_tangent)
                     {
                         mesh.tangent_data = outf;
-                        mesh.tangent_data_size = bf->size;
-                        mesh.tangent_count = count * 3;
+                        mesh.tangent_data_size = num_bytes;
+                        mesh.tangent_count = count;
                     }
 
 //NOTE(Ray):only support two set of uv data for now.
                     else if(ac.type == cgltf_attribute_type_texcoord && !has_got_first_uv_set)
                     {
                         mesh.uv_data = outf;
-                        mesh.uv_data_size = bf->size;
-                        mesh.uv_count = count * 2;
+                        mesh.uv_data_size = num_bytes;
+                        mesh.uv_count = count;
                         has_got_first_uv_set = true;
                     }
                 
                     else if(ac.type == cgltf_attribute_type_texcoord && has_got_first_uv_set)
                     {
                         mesh.uv2_data = outf;
-                        mesh.uv2_data_size = bf->size;
-                        mesh.uv2_count = count * 2;
+                        mesh.uv2_data_size = num_bytes;
+                        mesh.uv2_count = count;
                         has_got_first_uv_set = true;                        
                     }                    
                 }
-
             }
         }
+
+        mesh.material_id = material_id;
+        u32 last_id = fmj_stretch_buffer_push(&ctx->asset_tables->meshes,&mesh);
+        result.y = last_id;
     }
-    return mesh;    
-}
-
-FMJAssetModel fmj_asset_load_model_from_glb(FMJAssetContext* ctx,const char* file_path,u32  material_id)
-{
-    FMJAssetModel result= {};
-    bool is_success = false;
-
-    cgltf_options options = {};
-    cgltf_data* data = NULL;
-    cgltf_result aresult = cgltf_parse_file(&options,file_path, &data);
-    if (aresult == cgltf_result_success)
-    {
-
-//NOTE(Ray):Why multipler buffers?
-//        for(int i = 0;i < data->buffers_count;++i)
-        if(data->buffers_count > 1)
-        {
-            //We dont support multiple buffer cgltf yet.
-            ASSERT(false);
-        }
-
-        result = fmj_asset_model_create(ctx);
-        result.model_name = fmj_string_create((char*)file_path,ctx->perm_mem);
-        
-        cgltf_result rs = cgltf_load_buffers(&options, data, data->buffers[0].uri);
-        for(int i = 0;i < data->meshes_count;++i)
-        {
-            cgltf_mesh mes = data->meshes[i];
-            FMJAssetMesh mesh = fmj_asset_create_mesh_from_cgltf_mesh(ctx,&mes);
-            mesh.material_id = material_id;
-            fmj_stretch_buffer_push(&result.meshes,&mesh);
-            is_success = true;            
-        }
-        if(!is_success)
-        {
-            //TODO(Ray):Delte created model data.
-            ASSERT(false);
-        }
-
-        cgltf_free(data);
-    }
-    return result;        
+    
+    return result;    
 }
 
 void fmj_asset_load_meshes_recursively_gltf_node_(FMJAssetModelLoadResult* result,cgltf_node* node,FMJAssetContext* ctx,const char* file_path,u32  material_id,FMJSceneObject* so)
@@ -278,7 +238,6 @@ void fmj_asset_load_meshes_recursively_gltf_node_(FMJAssetModelLoadResult* resul
     for(int i = 0;i < node->children_count;++i)
     {
         cgltf_node* child = node->children[i];
-
         FMJ3DTrans trans = {};
         fmj_3dtrans_init(&trans);
 
@@ -301,34 +260,26 @@ void fmj_asset_load_meshes_recursively_gltf_node_(FMJAssetModelLoadResult* resul
                             f3_length(f3_create(out_mat.c1.x,out_mat.c1.y,out_mat.c1.z)),
                             f3_length(f3_create(out_mat.c2.x,out_mat.c2.y,out_mat.c2.z)));
         trans.r = quaternion_create_f4x4(out_mat);
-
         trans.m = out_mat;                    
 
         s32 mesh_id = -1;
         u32 type = 0;
+        f2 mesh_range = f2_create_f(0);
         if(child->mesh)
         {
             result->model.model_name = fmj_string_create((char*)file_path,ctx->perm_mem);                
-
-            FMJAssetMesh mesh = fmj_asset_create_mesh_from_cgltf_mesh(ctx,child->mesh);
-            mesh.transform = trans;
-            mesh.material_id = material_id;
-            
-            mesh.matrix_id = fmj_stretch_buffer_push(&ctx->asset_tables->matrix_buffer,&trans.m);
-            mesh.id = ctx->asset_tables->meshes.fixed.count;
-            mesh_id = (s32)mesh.id;
-            fmj_stretch_buffer_push(&result->model.meshes,&mesh.id);            
-            fmj_stretch_buffer_push(&ctx->asset_tables->meshes,&mesh);
+            mesh_range = fmj_asset_create_mesh_from_cgltf_mesh(ctx,child->mesh,material_id);
             type = 1;
+            fmj_asset_upload_meshes(ctx,mesh_range);            
         }
-        
         void* mptr = (void*)mesh_id;
 //add node to parent        
         u64 child_id = AddChildToSceneObject(ctx,so,&trans,&mptr);
-        FMJSceneObject* child_so = fmj_stretch_buffer_check_out(FMJSceneObject,&so->children.buffer,child_id);
+        FMJSceneObject* child_so = fmj_stretch_buffer_check_out(FMJSceneObject,&ctx->scene_objects,child_id);
         child_so->type = type;
+        child_so->primitives_range = mesh_range;
         fmj_asset_load_meshes_recursively_gltf_node_(result,child,ctx,file_path, material_id,child_so);
-        fmj_stretch_buffer_check_in(&so->children.buffer);                    
+        fmj_stretch_buffer_check_in(&ctx->scene_objects);                    
     }
 }
 
@@ -361,27 +312,30 @@ FMJAssetModelLoadResult fmj_asset_load_model_from_glb_2(FMJAssetContext* ctx,con
             u64 p_matrix_id = fmj_stretch_buffer_push(&ctx->asset_tables->matrix_buffer,&parent_trans.m);
             void* p_mptr = (void*)p_matrix_id;
 
-            FMJSceneObject model_root_so = {};
-            fmj_scene_object_buffer_init(&model_root_so.children);
+            FMJSceneObject model_root_so_ = {};
+            fmj_scene_object_buffer_init(&model_root_so_.children);
+            u64 model_root_so_id = fmj_stretch_buffer_push(&ctx->scene_objects,&model_root_so_);
+            FMJSceneObject* model_root = fmj_stretch_buffer_check_out(FMJSceneObject,&ctx->scene_objects,model_root_so_id);
 
-            for(int i = 0;i < data->nodes_count;++i)
+            ASSERT(data->scenes_count == 1);
+            for(int i = 0;i < data->scenes[0].nodes_count;++i)
             {
-
-                cgltf_node* child = &data->nodes[i];
+                cgltf_node* root_node = data->scenes[0].nodes[i];
+            
                 FMJ3DTrans trans = {};
                 fmj_3dtrans_init(&trans);
 
                 f4x4 out_mat = f4x4_identity();
-                if(child->has_matrix)
+                if(root_node->has_matrix)
                 {
-                    out_mat = f4x4_create(child->matrix[0],child->matrix[1],child->matrix[2],child->matrix[3],
-                                          child->matrix[4],child->matrix[5],child->matrix[6],child->matrix[7],
-                                          child->matrix[8],child->matrix[9],child->matrix[10],child->matrix[11],
-                                          child->matrix[12],child->matrix[13],child->matrix[14],child->matrix[15]);                                        
+                    out_mat = f4x4_create(root_node->matrix[0],root_node->matrix[1],root_node->matrix[2],root_node->matrix[3],
+                                          root_node->matrix[4],root_node->matrix[5],root_node->matrix[6],root_node->matrix[7],
+                                          root_node->matrix[8],root_node->matrix[9],root_node->matrix[10],root_node->matrix[11],
+                                          root_node->matrix[12],root_node->matrix[13],root_node->matrix[14],root_node->matrix[15]);                                        
                 }
                 else
                 {
-                    cgltf_node_transform_world(child, (cgltf_float*)&out_mat);
+                    cgltf_node_transform_world(root_node, (cgltf_float*)&out_mat);
                 }
 
                 trans.p = f3_create(out_mat.c3.x,out_mat.c3.y,out_mat.c3.z);
@@ -389,41 +343,49 @@ FMJAssetModelLoadResult fmj_asset_load_model_from_glb_2(FMJAssetContext* ctx,con
                                     f3_length(f3_create(out_mat.c1.x,out_mat.c1.y,out_mat.c1.z)),
                                     f3_length(f3_create(out_mat.c2.x,out_mat.c2.y,out_mat.c2.z)));
                 trans.r = quaternion_create_f4x4(out_mat);
+                trans.m = out_mat;
 
-                trans.m = out_mat;                    
+                s32 mesh_id = -1;
+                u32 type = 0;
+                f2 mesh_range = f2_create_f(0);                
+                if(root_node->mesh)
+                {
+                    result.model.model_name = fmj_string_create((char*)file_path,ctx->perm_mem);                
+                    mesh_range = fmj_asset_create_mesh_from_cgltf_mesh(ctx,root_node->mesh,material_id);
+                    type = 1;
+                    fmj_asset_upload_meshes(ctx,mesh_range);
+                }
 
-                u64 matrix_id = fmj_stretch_buffer_push(&ctx->asset_tables->matrix_buffer,&trans.m);
-                void* mptr = (void*)matrix_id;
-                u64 child_id = AddChildToSceneObject(ctx,&model_root_so,&trans,&mptr);
-                FMJSceneObject* child_so = fmj_stretch_buffer_check_out(FMJSceneObject,&model_root_so.children.buffer,child_id);
-                child_so->m_id = matrix_id;
+                void* mptr = (void*)mesh_id;
+                u64 child_id = AddChildToSceneObject(ctx,model_root,&trans,&mptr);
+                FMJSceneObject* child_so = fmj_stretch_buffer_check_out(FMJSceneObject,&ctx->scene_objects,child_id);
+                child_so->type = type;
+                child_so->primitives_range = mesh_range;
+                fmj_asset_load_meshes_recursively_gltf_node_(&result,root_node,ctx,file_path,material_id,child_so);
+                fmj_stretch_buffer_check_in(&ctx->scene_objects);
                 
-                fmj_asset_load_meshes_recursively_gltf_node_(&result,child,ctx,file_path,material_id,child_so);
-
-                fmj_stretch_buffer_check_in(&model_root_so.children.buffer);
             }
-            result.scene_object = model_root_so;            
+            fmj_stretch_buffer_check_in(&ctx->scene_objects);
+            result.scene_object_id = model_root_so_id;
         }
         
         if(!is_success)
         {
 //            ASSERT(false);
         }
-        cgltf_free(data);
+//        cgltf_free(data);
     }
     return result;        
 }
 
-void fmj_asset_upload_model(AssetTables* asset_tables,FMJAssetContext*ctx,FMJAssetModel* ma)
+void fmj_asset_upload_meshes(FMJAssetContext*ctx,f2 range)
 {
-    for(int i = 0;i < ma->meshes.fixed.count;++i)
+    for(int i = range.x;i <= range.y;++i)
     {
         int is_valid = 0;
         GPUMeshResource mesh_r;
-        u64* mesh_id = (u64*)fmj_stretch_buffer_check_out(u64,&ma->meshes,i);
-        ASSERT(mesh_id);
-        FMJAssetMesh* mesh = (FMJAssetMesh*)fmj_stretch_buffer_check_out(FMJAssetMesh,&ctx->asset_tables->meshes,*mesh_id);        
-        f2 id_range;
+        FMJAssetMesh* mesh = (FMJAssetMesh*)fmj_stretch_buffer_check_out(FMJAssetMesh,&ctx->asset_tables->meshes,i);        
+        f2 id_range = f2_create_f(0);
         if(mesh->vertex_count > 0)
         {
             u64 v_size = mesh->vertex_data_size;//3 * sizeof(f32) * mesh->vertex_count;
@@ -432,7 +394,7 @@ void fmj_asset_upload_model(AssetTables* asset_tables,FMJAssetContext*ctx,FMJAss
             D12RendererCode::SetArenaToVertexBufferView(&mesh_r.vertex_buff,v_size,stride);
             D12RendererCode::UploadBufferData(&mesh_r.vertex_buff,mesh->vertex_data,v_size);
             
-            u32 id = fmj_stretch_buffer_push(&asset_tables->vertex_buffers,(void*)&mesh_r.vertex_buff.buffer_view);            
+            u32 id = fmj_stretch_buffer_push(&ctx->asset_tables->vertex_buffers,(void*)&mesh_r.vertex_buff.buffer_view);            
 
             id_range.x = id;            
             is_valid++;
@@ -443,6 +405,7 @@ void fmj_asset_upload_model(AssetTables* asset_tables,FMJAssetContext*ctx,FMJAss
         }
 
         f32 start_range = id_range.x;
+        
         if(mesh->normal_count > 0)
         {
             u64 size = mesh->normal_data_size;
@@ -451,7 +414,7 @@ void fmj_asset_upload_model(AssetTables* asset_tables,FMJAssetContext*ctx,FMJAss
             D12RendererCode::SetArenaToVertexBufferView(&mesh_r.normal_buff,size,stride);            
 
             D12RendererCode::UploadBufferData(&mesh_r.normal_buff,mesh->normal_data,size);
-            fmj_stretch_buffer_push(&asset_tables->vertex_buffers,(void*)&mesh_r.normal_buff.buffer_view);
+            fmj_stretch_buffer_push(&ctx->asset_tables->vertex_buffers,(void*)&mesh_r.normal_buff.buffer_view);
             start_range  += 1.0f;
             is_valid++;
         }
@@ -464,7 +427,7 @@ void fmj_asset_upload_model(AssetTables* asset_tables,FMJAssetContext*ctx,FMJAss
             D12RendererCode::SetArenaToVertexBufferView(&mesh_r.uv_buff,size,stride);            
 
             D12RendererCode::UploadBufferData(&mesh_r.uv_buff,mesh->uv_data,size);
-            fmj_stretch_buffer_push(&asset_tables->vertex_buffers,(void*)&mesh_r.uv_buff.buffer_view);    
+            fmj_stretch_buffer_push(&ctx->asset_tables->vertex_buffers,(void*)&mesh_r.uv_buff.buffer_view);    
             start_range += 1.0f;            
             is_valid++;
         }
@@ -479,7 +442,7 @@ void fmj_asset_upload_model(AssetTables* asset_tables,FMJAssetContext*ctx,FMJAss
             D12RendererCode::SetArenaToVertexBufferView(&mesh_r.uv_buff,size,stride);            
 
             D12RendererCode::UploadBufferData(&mesh_r.uv_buff,mesh->uv2_data,size);
-            fmj_stretch_buffer_push(&asset_tables->vertex_buffers,(void*)&mesh_r.uv_buff.buffer_view);
+            fmj_stretch_buffer_push(&ctx->asset_tables->vertex_buffers,(void*)&mesh_r.uv_buff.buffer_view);
 
             start_range += 1.0f;
             is_valid++;
@@ -499,7 +462,7 @@ void fmj_asset_upload_model(AssetTables* asset_tables,FMJAssetContext*ctx,FMJAss
             D12RendererCode::SetArenaToIndexVertexBufferView(&mesh_r.element_buff,size,format);
 
             D12RendererCode::UploadBufferData(&mesh_r.element_buff,mesh->index_32_data,size);            
-            u64 index_id = fmj_stretch_buffer_push(&asset_tables->index_buffers,(void*)&mesh_r.element_buff.index_buffer_view);
+            u64 index_id = fmj_stretch_buffer_push(&ctx->asset_tables->index_buffers,(void*)&mesh_r.element_buff.index_buffer_view);
             
             mesh_r.index_id = index_id;
             is_valid++;
@@ -516,7 +479,7 @@ void fmj_asset_upload_model(AssetTables* asset_tables,FMJAssetContext*ctx,FMJAss
             D12RendererCode::SetArenaToIndexVertexBufferView(&mesh_r.element_buff,size,format);
 
             D12RendererCode::UploadBufferData(&mesh_r.element_buff,mesh->index_16_data,size);            
-            u64 index_id = fmj_stretch_buffer_push(&asset_tables->index_buffers,(void*)&mesh_r.element_buff.index_buffer_view);
+            u64 index_id = fmj_stretch_buffer_push(&ctx->asset_tables->index_buffers,(void*)&mesh_r.element_buff.index_buffer_view);
             
             mesh_r.index_id = index_id;
             is_valid++;
@@ -532,63 +495,91 @@ void fmj_asset_upload_model(AssetTables* asset_tables,FMJAssetContext*ctx,FMJAss
         {
             ASSERT(false);
         }
+
+        fmj_stretch_buffer_check_in(&ctx->asset_tables->meshes);        
     }
 }
 
-FMJStretchBuffer fmj_asset_copy_buffer(FMJStretchBuffer* in)
+FMJStretchBuffer fmj_asset_copy_buffer(FMJStretchBuffer* in,bool copy_contents = false)
 {
     ASSERT(in);
     FMJStretchBuffer result = {};
     if(in->fixed.mem_arena.size > 0)
     {
         result = fmj_stretch_buffer_init(in->fixed.count,in->fixed.unit_size,in->fixed.alignment);;
-        result.fixed.count = in->fixed.count;
-        result.fixed.total_size = in->fixed.total_size;
-        memcpy(result.fixed.mem_arena.base,in->fixed.mem_arena.base,in->fixed.mem_arena.size);        
+        if(copy_contents)
+        {
+            result.fixed.count = in->fixed.count;
+            result.fixed.total_size = in->fixed.total_size;
+            memcpy(result.fixed.mem_arena.base,in->fixed.mem_arena.base,in->fixed.mem_arena.size);                            
+        }
     }
     return result;
 }
 
 FMJSceneObject fmj_asset_copy_scene_object(FMJAssetContext* ctx,FMJSceneObject* so)
 {
-    FMJSceneObject result = {};
+    ASSERT(so);
+    FMJSceneObject result = *so;
     result.children.buffer = fmj_asset_copy_buffer(&so->children.buffer);
     result.transform = so->transform;
     result.m_id = fmj_stretch_buffer_push(&ctx->asset_tables->matrix_buffer,&result.transform.m);
-    result.data = so->data;
-    result.type = so->type;
+//    result.data = so->data;
+//    result.type = so->type;
+//    result.primitives_range = so->primitives_range;
     return result;
 }
 
-void fmj_asset_copy_model_data_recursively_(FMJAssetContext* ctx,FMJSceneObject* dest,FMJSceneObject* src)
+void fmj_asset_copy_model_data_recursively_(FMJAssetContext* ctx,u64 dest_id,u64  src_id)
 {
-    for(int i = 0;i < src->children.buffer.fixed.count;++i)
+
+    FMJSceneObject src = fmj_stretch_buffer_get(FMJSceneObject,&ctx->scene_objects,src_id);
+    for(int i = 0;i < src.children.buffer.fixed.count;++i)
     {
-        FMJSceneObject* child_so = fmj_stretch_buffer_check_out(FMJSceneObject,&src->children.buffer,i);
-        FMJSceneObject new_child_dest = fmj_asset_copy_scene_object(ctx,child_so);
-        u64 dest_id = fmj_stretch_buffer_push(&dest->children.buffer,&new_child_dest);
-        FMJSceneObject* new_child = fmj_stretch_buffer_check_out(FMJSceneObject,&dest->children.buffer,dest_id);
-        fmj_asset_copy_model_data_recursively_(ctx,new_child,child_so);
-        fmj_stretch_buffer_check_in(&src->children.buffer);
-        fmj_stretch_buffer_check_in(&dest->children.buffer);        
+        FMJSceneObject* dest = fmj_stretch_buffer_check_out(FMJSceneObject,&ctx->scene_objects,dest_id);
+           
+        u64 child_so_id = fmj_stretch_buffer_get(u64,&src.children.buffer,i);
+        FMJSceneObject child_so = fmj_stretch_buffer_get(FMJSceneObject,&ctx->scene_objects,child_so_id);
+        FMJSceneObject new_child_dest = fmj_asset_copy_scene_object(ctx,&child_so);
+
+        fmj_stretch_buffer_check_in(&ctx->scene_objects);
+        u64 new_dest_id = fmj_stretch_buffer_push(&ctx->scene_objects,&new_child_dest);
+        dest = fmj_stretch_buffer_check_out(FMJSceneObject,&ctx->scene_objects,dest_id);        
+        fmj_stretch_buffer_push(&dest->children.buffer,&new_dest_id);
+        fmj_stretch_buffer_check_in(&ctx->scene_objects);
+        
+        if(child_so.type == 1)
+        {
+            int a = 0;
+        }            
+        fmj_asset_copy_model_data_recursively_(ctx,new_dest_id,child_so_id);
     }
 }
 
-FMJSceneObject fmj_asset_create_model_instance(FMJAssetContext*ctx,FMJAssetModelLoadResult* model)
+u64 fmj_asset_create_model_instance(FMJAssetContext*ctx,FMJAssetModelLoadResult* model)
 {
     ASSERT(model);
-    FMJSceneObject src = model->scene_object;
-    FMJSceneObject dest = fmj_asset_copy_scene_object(ctx,&src);
-//    int handle = fmj_stretch_buffer_push(&so->children.buffer,&model_copy_so);
+    FMJSceneObject src = fmj_stretch_buffer_get(FMJSceneObject,&ctx->scene_objects,model->scene_object_id);
+    FMJSceneObject dest_ = fmj_asset_copy_scene_object(ctx,&src);
+    u64 dest_id = fmj_stretch_buffer_push(&ctx->scene_objects,&dest_);
+
     for(int i = 0;i < src.children.buffer.fixed.count;++i)
     {
-        FMJSceneObject* src_child_so = fmj_stretch_buffer_check_out(FMJSceneObject,&src.children.buffer,i);
-        FMJSceneObject* dest_child_so = fmj_stretch_buffer_check_out(FMJSceneObject,&dest.children.buffer,i);
-        fmj_asset_copy_model_data_recursively_(ctx,dest_child_so,src_child_so);
-        fmj_stretch_buffer_check_in(&src.children.buffer);
-        fmj_stretch_buffer_check_in(&dest.children.buffer);
+        FMJSceneObject* dest = fmj_stretch_buffer_check_out(FMJSceneObject,&ctx->scene_objects,dest_id);            
+        u64 src_child_so_id = fmj_stretch_buffer_get(u64,&src.children.buffer,i);
+        FMJSceneObject src_child_so = fmj_stretch_buffer_get(FMJSceneObject,&ctx->scene_objects,src_child_so_id);
+        FMJSceneObject dest_child_so_ = fmj_asset_copy_scene_object(ctx,&src_child_so);
+
+        fmj_stretch_buffer_check_in(&ctx->scene_objects);
+        u64 dest_child_so_id = fmj_stretch_buffer_push(&ctx->scene_objects,&dest_child_so_);
+        dest = fmj_stretch_buffer_check_out(FMJSceneObject,&ctx->scene_objects,dest_id);            
+        fmj_stretch_buffer_push(&dest->children.buffer,&dest_child_so_id);
+        fmj_stretch_buffer_check_in(&ctx->scene_objects);        
+
+        
+        fmj_asset_copy_model_data_recursively_(ctx,dest_child_so_id,src_child_so_id);
     }
-    return dest;
+    return dest_id;
 }
 
 

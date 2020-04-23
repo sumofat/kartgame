@@ -23,6 +23,14 @@ struct FMJSceneObjectBuffer
     FMJStretchBuffer buffer;
 }typedef FMJSceneObjectBuffer;
 
+enum FMJSceneObjectType
+{
+    fmj_scene_object_type_mesh,
+    fmj_scene_object_type_light,
+    fmj_scene_object_type_model,
+    fmj_scene_object_type_camera,
+}typedef FMJSceneObjectType;
+
 struct FMJSceneObject
 {
     FMJ3DTrans transform;
@@ -31,6 +39,7 @@ struct FMJSceneObject
     u64 m_id;//matrix id refers to asset table matrix buffer
     u32 type;//user defined type
     void* data;//user defined data typically ptr to a game object etcc...
+    f2 primitives_range;
 }typedef FMJSceneObject;
 
 struct FMJScene
@@ -47,18 +56,20 @@ struct FMJSceneBuffer
 void fmj_scene_object_buffer_init(FMJSceneObjectBuffer* buffer)
 {
     ASSERT(buffer);
-    buffer->buffer = fmj_stretch_buffer_init(1,sizeof(FMJSceneObject),false);
+    buffer->buffer = fmj_stretch_buffer_init(1,sizeof(u64),8);
 }
 
 u64 AddSceneObject(FMJAssetContext* ctx,FMJSceneObjectBuffer* so,FMJ3DTrans ot)
 {
     ASSERT(so);
     FMJSceneObject new_so = {};
-
     new_so.transform = ot;
+    
     new_so.m_id = fmj_stretch_buffer_push(&ctx->asset_tables->matrix_buffer,&ot.m);
-    uint32_t handle = fmj_stretch_buffer_push(&so->buffer,&new_so);
-    return handle;
+    
+    u64 so_id = fmj_stretch_buffer_push(&ctx->scene_objects,&new_so);    
+    fmj_stretch_buffer_push(&so->buffer,&so_id);
+    return so_id;
 }
 
 u64 AddSceneObject(FMJAssetContext* ctx,FMJSceneObjectBuffer* so,f3 p,quaternion r,f3 s)
@@ -90,7 +101,6 @@ u64 AddChildToSceneObject(FMJAssetContext* ctx,FMJSceneObject* so,FMJ3DTrans* ne
         fmj_scene_object_buffer_init(&so->children);
 //        so->children.buffer = YoyoInitVector(10, SceneObject, false);
     }
-
     
     //and the local p is the absolute p relative to the parent p.
     new_child->local_p = new_child->p;
@@ -110,10 +120,11 @@ u64 AddChildToSceneObject(FMJAssetContext* ctx,FMJSceneObject* so,FMJ3DTrans* ne
     new_so.m_id = fmj_stretch_buffer_push(&ctx->asset_tables->matrix_buffer,&new_so.transform.m);    
     //new_so.parent = so;
     new_so.data = *data;
-    int handle = fmj_stretch_buffer_push(&so->children.buffer,&new_so);
-    return handle;
+    u64 so_id = fmj_stretch_buffer_push(&ctx->scene_objects,&new_so);    
+    fmj_stretch_buffer_push(&so->children.buffer,&so_id);
+    return so_id;
 }
-
+// 
 //NOTE(Ray):When adding a chid ot p is local position and p is offset from parents ot p.
 u64 AddChildToSceneObject(FMJAssetContext* ctx,FMJSceneObject* so,f3 p,quaternion r,f3 s,void** data)
 {
@@ -126,36 +137,41 @@ u64 AddChildToSceneObject(FMJAssetContext* ctx,FMJSceneObject* so,f3 p,quaternio
     return AddChildToSceneObject(ctx,so,&new_child,data);
 }
     
-void UpdateChildren(FMJSceneObject* parent_so,f3* position_sum,quaternion* rotation_product)
+void UpdateChildren(FMJAssetContext* ctx,FMJSceneObject* parent_so,f3* position_sum,quaternion* rotation_product)
 {
     FMJSceneObject* child_so;
     for(int i = 0;i < parent_so->children.buffer.fixed.count;++i)
     {
-        child_so = fmj_stretch_buffer_check_out(FMJSceneObject,&parent_so->children.buffer,i);
+        u64* child_so_index = fmj_stretch_buffer_check_out(u64,&parent_so->children.buffer,i);
+        child_so = fmj_stretch_buffer_check_out(FMJSceneObject,&ctx->scene_objects,*child_so_index);        
         FMJ3DTrans *ot = &child_so->transform;
         f3 current_p_sum = *position_sum;
         quaternion current_r_product = *rotation_product;
         ot->p = current_p_sum = f3_add(current_p_sum,f3_rotate((current_r_product), ot->local_p));
         ot->r = current_r_product = quaternion_mul(current_r_product,ot->local_r);        
 
-        ot->s = f3_mul(parent_so->transform.s,ot->local_s);
-//        fmj_3dtrans_update(ot);
+        ot->s = ot->local_s;//f3_mul(parent_so->transform.s,ot->local_s);//
 
-        UpdateChildren(child_so, &current_p_sum, &current_r_product);        
+        UpdateChildren(ctx,child_so, &current_p_sum, &current_r_product);
+        fmj_stretch_buffer_check_in(&parent_so->children.buffer);
+        fmj_stretch_buffer_check_in(&ctx->scene_objects);
     }
 }
 
-void UpdateSceneObjects(FMJSceneObjectBuffer* buffer,f3* position_sum,quaternion* rotation_product)
+void UpdateSceneObjects(FMJAssetContext* ctx,FMJSceneObjectBuffer* buffer,f3* position_sum,quaternion* rotation_product)
 {
     for(int i = 0;i < buffer->buffer.fixed.count;++i)
     {
-        FMJSceneObject* so = fmj_stretch_buffer_check_out(FMJSceneObject,&buffer->buffer,i);
+        u64* child_so_index = fmj_stretch_buffer_check_out(u64,&buffer->buffer,i);        
+        FMJSceneObject* so = fmj_stretch_buffer_check_out(FMJSceneObject,&ctx->scene_objects,*child_so_index);
+        fmj_stretch_buffer_check_in(&buffer->buffer);
         FMJ3DTrans* parent_ot = &so->transform;
         fmj_3dtrans_update(parent_ot);
         f3 current_p_sum = *position_sum;
         current_p_sum = f3_add(current_p_sum,parent_ot->p);
         *rotation_product = parent_ot->local_r;
-        UpdateChildren(so, &current_p_sum, rotation_product);        
+        UpdateChildren(ctx,so, &current_p_sum, rotation_product);
+        fmj_stretch_buffer_check_in(&ctx->scene_objects);
     }
 }
 
@@ -190,20 +206,20 @@ u64 CreateEmptyScene(FMJSceneBuffer* buffer)
     FMJScene scene = {};
     fmj_scene_object_buffer_init(&scene.buffer);
     scene.state_flags = fmj_scene_state_default;
-    u64 id = fmj_stretch_buffer_push(&buffer->buffer,&scene);
+    u64 id = fmj_stretch_buffer_push(&buffer->buffer,&scene);    
     return id;
 }
 
 //NOTE(Ray):For updating all scenes?
-void UpdateScene(FMJScene* scene)
+void UpdateScene(FMJAssetContext* ctx,FMJScene* scene)
 {
     quaternion product = quaternion_identity();
     f3 sum = f3_create_f(0);
-    UpdateSceneObjects(&scene->buffer,&sum,&product);
+    UpdateSceneObjects(ctx,&scene->buffer,&sum,&product);
 }
 
 //NOTE(Ray):For updating all scenes?
-void UpdateSceneBuffer(FMJSceneBuffer* buffer)
+void UpdateSceneBuffer(FMJAssetContext* ctx,FMJSceneBuffer* buffer)
 {
     FMJScene* scene;
     quaternion product = quaternion_identity();
@@ -211,41 +227,28 @@ void UpdateSceneBuffer(FMJSceneBuffer* buffer)
     {
         scene = fmj_stretch_buffer_check_out(FMJScene,&buffer->buffer,i);
         f3 sum = f3_create_f(0);
-        UpdateSceneObjects(&scene->buffer,&sum,&product);
+        UpdateSceneObjects(ctx,&scene->buffer,&sum,&product);
         fmj_stretch_buffer_check_in(&buffer->buffer);
     }
 }
 
-u64 AddModelToSceneObjectAsChild(FMJAssetContext* ctx,FMJSceneObject* so,FMJSceneObject* model_so,FMJ3DTrans new_child)
+void AddModelToSceneObjectAsChild(FMJAssetContext* ctx,u64 so_id,u64 model_so_id,FMJ3DTrans new_child)
 {
-    ASSERT(so);
-
-    //and the local p is the absolute p relative to the parent p.
+        //and the local p is the absolute p relative to the parent p.
     new_child.local_p = new_child.p;
     new_child.local_s = new_child.s;
     new_child.local_r = new_child.r;
 
+    //get the model so
+    FMJSceneObject* model_so = fmj_stretch_buffer_check_out(FMJSceneObject,&ctx->scene_objects,model_so_id);
+    ASSERT(model_so);
     model_so->transform = new_child;
-    //model_so->parent = so;
-    int handle = fmj_stretch_buffer_push(&so->children.buffer,model_so);
-    
-/*
-    FMJSceneObject new_so = {};
-    new_so.transform = new_child;
-    new_so.children.buffer = fmj_stretch_buffer_init(model_so->children.buffer.fixed.count,sizeof(FMJSceneObject),8);
-    new_so.children.buffer.fixed.count = model_so->children.buffer.fixed.count;
-    new_so.children.buffer.fixed.total_size = model_so->children.buffer.fixed.total_size;    
-    memcpy(new_so.children.buffer.fixed.mem_arena.base,model_so->children.buffer.fixed.mem_arena.base,model_so->children.buffer.fixed.mem_arena.size);
-    new_so.parent = so;
-    new_so.m_id = fmj_stretch_buffer_push(&ctx->asset_tables->matrix_buffer,&new_so.transform.m);
-    new_so.data = nullptr;
-    int handle = fmj_stretch_buffer_push(&so->children.buffer,&new_so);
-*/
-    
-//    f3 ps = f3_add(so->transform.p,new_child.p);
-//    quaternion q = quaternion_mul(so->transform.r,new_child.r);
-//    UpdateSceneObjects(&new_so.children, &ps,&q);        
-    return handle;        
+    fmj_stretch_buffer_check_in(&ctx->scene_objects);
+
+    //Add this instance to the children of the parent so 
+    FMJSceneObject* parent = fmj_stretch_buffer_check_out(FMJSceneObject,&ctx->scene_objects,so_id);
+    u64 handle = fmj_stretch_buffer_push(&parent->children.buffer,&model_so_id);
+    fmj_stretch_buffer_check_in(&ctx->scene_objects);
 }
 
 #define FMJ_SCENE_H

@@ -30,6 +30,7 @@ struct AssetTables
     FMJStretchBuffer index_buffers;
     FMJStretchBuffer matrix_buffer;
     FMJStretchBuffer meshes;
+
 }typedef AssetTables;
 
 struct FMJAssetContext
@@ -37,7 +38,11 @@ struct FMJAssetContext
     FMJMemoryArena* perm_mem;
     FMJMemoryArena* temp_mem;
     AssetTables* asset_tables;
+
+    FMJStretchBuffer scene_objects;        
 }typedef FMJAssetContext;
+
+
 
 #include "fmj_scene.h"
 #include "assets.h"
@@ -57,56 +62,63 @@ void fmj_scene_process_children_recrusively(FMJSceneObject* so,u64 c_mat,u64 p_m
 {
     for(int i = 0;i < so->children.buffer.fixed.count;++i)
     {
-        FMJSceneObject* child_so = fmj_stretch_buffer_check_out(FMJSceneObject,&so->children.buffer,i);
+        u64 child_so_id = fmj_stretch_buffer_get(u64,&so->children.buffer,i);
+        FMJSceneObject* child_so = fmj_stretch_buffer_check_out(FMJSceneObject,&ctx->scene_objects,child_so_id);
         fmj_3dtrans_update(&child_so->transform);
-        f4x4* final_mat = fmj_stretch_buffer_check_out(f4x4,&ctx->asset_tables->matrix_buffer,child_so->m_id);
-        *final_mat = child_so->transform.m;
-        fmj_stretch_buffer_check_in(&ctx->asset_tables->matrix_buffer);
-        u64 mesh_id = (u64)child_so->data;
+
         if(child_so->type != 0)//non mesh type
         {
-            FMJAssetMesh* m_ = fmj_stretch_buffer_check_out(FMJAssetMesh,&ctx->asset_tables->meshes,mesh_id);
-            if(m_)
-            {
-                FMJAssetMesh  m = *m_;
-                //get mesh issue render command
-                FMJRenderCommand com = {};        
-                FMJRenderGeometry geo = {};
-                if(m.index32_count > 0)
-                {
-                    com.is_indexed = true;
-                    geo.buffer_id_range = m.mesh_resource.buffer_range;
-                    geo.index_id = m.mesh_resource.index_id;
-                    geo.index_count = m.index32_count;                
-                }
-                else if(m.index16_count > 0)
-                {
-                    com.is_indexed = true;
-                    geo.buffer_id_range = m.mesh_resource.buffer_range;
-                    geo.index_id = m.mesh_resource.index_id;
-                    geo.index_count = m.index16_count;                
-                }
-                else
-                {
-                    com.is_indexed = false;
-                    geo.buffer_id_range = m.mesh_resource.buffer_range;
-                    geo.index_id = m.mesh_resource.index_id;
-                    geo.count = m.vertex_count;
-                }
+            f4x4* final_mat = fmj_stretch_buffer_check_out(f4x4,&ctx->asset_tables->matrix_buffer,child_so->m_id);
+            *final_mat = child_so->transform.m;
+            fmj_stretch_buffer_check_in(&ctx->asset_tables->matrix_buffer);
             
-                geo.offset = 0;
-                com.geometry = geo;
-                com.material_id = m.material_id;
-                com.texture_id = m.metallic_roughness_texture_id;
-                com.model_matrix_id = child_so->m_id;
-                com.camera_matrix_id = c_mat;
-                com.perspective_matrix_id = p_mat;
-                fmj_stretch_buffer_push(&render_command_buffer,(void*)&com);
-                fmj_stretch_buffer_check_in(&ctx->asset_tables->meshes);                    
+            for(int m = child_so->primitives_range.x;m <= child_so->primitives_range.y;++m)
+            {
+                u64 mesh_id = (u64)m;            
+                FMJAssetMesh* m_ = fmj_stretch_buffer_check_out(FMJAssetMesh,&ctx->asset_tables->meshes,mesh_id);
+                if(m_)
+                {
+                    FMJAssetMesh  m = *m_;
+                    //get mesh issue render command
+                    FMJRenderCommand com = {};        
+                    FMJRenderGeometry geo = {};
+                    if(m.index32_count > 0)
+                    {
+                        com.is_indexed = true;
+                        geo.buffer_id_range = m.mesh_resource.buffer_range;
+                        geo.index_id = m.mesh_resource.index_id;
+                        geo.index_count = m.index32_count;                
+                    }
+                    else if(m.index16_count > 0)
+                    {
+                        com.is_indexed = true;
+                        geo.buffer_id_range = m.mesh_resource.buffer_range;
+                        geo.index_id = m.mesh_resource.index_id;
+                        geo.index_count = m.index16_count;                
+                    }
+                    else
+                    {
+                        com.is_indexed = false;
+                        geo.buffer_id_range = m.mesh_resource.buffer_range;
+                        geo.index_id = m.mesh_resource.index_id;
+                        geo.count = m.vertex_count;
+                    }
+            
+                    geo.offset = 0;
+                    com.geometry = geo;
+                    com.material_id = m.material_id;
+                    com.texture_id = m.metallic_roughness_texture_id;
+                    com.model_matrix_id = child_so->m_id;
+                    com.camera_matrix_id = c_mat;
+                    com.perspective_matrix_id = p_mat;
+                    fmj_stretch_buffer_push(&render_command_buffer,(void*)&com);
+                    fmj_stretch_buffer_check_in(&ctx->asset_tables->meshes);                    
+                }                
             }
         }
 
         fmj_scene_process_children_recrusively(child_so,c_mat,p_mat,ctx);
+        fmj_stretch_buffer_check_in(&ctx->scene_objects);
     }
 }
 
@@ -115,14 +127,16 @@ void fmj_scene_issue_render_commands(FMJScene* s,FMJAssetContext* ctx,u64 c_mat,
     //Start at root node
     for(int i = 0;i < s->buffer.buffer.fixed.count;++i)
     {
-        FMJSceneObject* so = fmj_stretch_buffer_check_out(FMJSceneObject,&s->buffer.buffer,i);
+        u64 so_id = fmj_stretch_buffer_get(u64,&s->buffer.buffer,i);        
+        FMJSceneObject* so = fmj_stretch_buffer_check_out(FMJSceneObject,&ctx->scene_objects,so_id);
+//        FMJSceneObject* so = fmj_stretch_buffer_check_out(FMJSceneObject,&s->buffer.buffer,i);
 //        if(so->type == scene_object_type_mesh)
 
         if(so->children.buffer.fixed.count > 0)
         {
-            
             fmj_scene_process_children_recrusively(so,c_mat,p_mat,ctx);
         }
+        fmj_stretch_buffer_check_in(&ctx->scene_objects);
     }
 }
 //END FMJSCENETEST
@@ -272,14 +286,21 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,       1, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
     };
     
+    D3D12_INPUT_ELEMENT_DESC input_layout_pn_mesh[] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "NORMAL"  , 0, DXGI_FORMAT_R32G32B32_FLOAT,   1, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },        
+    };
+    
     uint32_t input_layout_count = _countof(input_layout);
     uint32_t input_layout_count_mesh = _countof(input_layout_mesh);
-    uint32_t input_layout_vu_count_mesh = _countof(input_layout_vu_mesh);        
+    uint32_t input_layout_vu_count_mesh = _countof(input_layout_vu_mesh);
+    uint32_t input_layout_pn_count_mesh = _countof(input_layout_pn_mesh);            
     // Create a root/shader signature.
 
     char* vs_file_name = "vs_test.hlsl";
     char* vs_mesh_vu_name = "vs_vu.hlsl";
     char* vs_mesh_file_name = "vs_test_mesh.hlsl";
+    char* vs_pn_file_name = "vs_pn.hlsl";
     
     char* fs_file_name = "ps_test.hlsl";
     char* fs_color_file_name = "fs_color.hlsl";
@@ -287,6 +308,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     RenderShader mesh_rs = D12RendererCode::CreateRenderShader(vs_mesh_file_name,fs_file_name);
     RenderShader mesh_vu_rs = D12RendererCode::CreateRenderShader(vs_mesh_vu_name,fs_file_name);
     RenderShader rs_color = D12RendererCode::CreateRenderShader(vs_file_name,fs_color_file_name);
+    RenderShader mesh_pn_color = D12RendererCode::CreateRenderShader(vs_pn_file_name,fs_color_file_name);
     
     PipelineStateStream ppss = D12RendererCode::CreateDefaultPipelineStateStreamDesc(input_layout,input_layout_count,rs.vs_blob,rs.fs_blob);
     ID3D12PipelineState* pipeline_state = D12RendererCode::CreatePipelineState(ppss);    
@@ -299,6 +321,9 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 
     PipelineStateStream vu_ppss_mesh = D12RendererCode::CreateDefaultPipelineStateStreamDesc(input_layout_vu_mesh,input_layout_vu_count_mesh,mesh_vu_rs.vs_blob,mesh_vu_rs.fs_blob,true);
     ID3D12PipelineState* vu_pipeline_state_mesh = D12RendererCode::CreatePipelineState(vu_ppss_mesh);        
+
+    PipelineStateStream pn_ppss_mesh = D12RendererCode::CreateDefaultPipelineStateStreamDesc(input_layout_pn_mesh,input_layout_pn_count_mesh,mesh_pn_color.vs_blob,mesh_pn_color.fs_blob,true);
+    ID3D12PipelineState* pn_pipeline_state_mesh = D12RendererCode::CreatePipelineState(pn_ppss_mesh);        
     
     FMJRenderMaterial base_render_material = {0};
     base_render_material.pipeline_state = (void*)pipeline_state;
@@ -330,6 +355,14 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     vu_render_material_mesh.scissor_rect = f4_create(0,0,LONG_MAX,LONG_MAX);    
     vu_render_material_mesh.id = material_count;
     fmj_anycache_add_to_free_list(&asset_tables.materials,(void*)&material_count,&vu_render_material_mesh);    
+    material_count++;
+
+    FMJRenderMaterial pn_render_material_mesh = color_render_material;
+    pn_render_material_mesh.pipeline_state = (void*)pn_pipeline_state_mesh;
+    pn_render_material_mesh.viewport_rect = f4_create(0,0,ps->window.dim.x,ps->window.dim.y);
+    pn_render_material_mesh.scissor_rect = f4_create(0,0,LONG_MAX,LONG_MAX);    
+    pn_render_material_mesh.id = material_count;
+    fmj_anycache_add_to_free_list(&asset_tables.materials,(void*)&material_count,&pn_render_material_mesh);    
     material_count++;
 
     //Camera setup
@@ -444,6 +477,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 
     //test gltlf aquisition
     FMJAssetContext asset_ctx = {};
+    asset_ctx.scene_objects = fmj_stretch_buffer_init(100,sizeof(FMJSceneObject),8);
+    
     asset_ctx.asset_tables = &asset_tables;
     asset_ctx.perm_mem = &permanent_strings;
     asset_ctx.temp_mem = &temp_strings;    
@@ -452,42 +487,87 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     FMJScene* test_scene = fmj_stretch_buffer_check_out(FMJScene,&scenes.buffer,scene_id);
 
     u64 root_node_id = AddSceneObject(&asset_ctx,&test_scene->buffer,f3_create_f(0),quaternion_identity(),f3_create_f(1));
-    FMJSceneObject* root_node = fmj_stretch_buffer_check_out(FMJSceneObject,&test_scene->buffer.buffer,root_node_id);
+    FMJSceneObject* root_node = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,root_node_id);
     fmj_scene_object_buffer_init(&root_node->children);
+    FMJ3DTrans root_t;
+    fmj_3dtrans_init(&root_t);
+    root_node->transform = root_t;
+    fmj_stretch_buffer_check_in(&asset_ctx.scene_objects);
 
-//    fmj_stretch_buffer_check_in();
+
+    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/BrainStem.glb",pn_render_material_mesh.id);
+//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/2CylinderEngine.glb",pn_render_material_mesh.id);
     
+//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Box.glb",color_render_material_mesh.id);    
+//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Fox.glb",vu_render_material_mesh.id);
+//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Lantern.glb",color_render_material_mesh.id);
+//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Duck.glb",color_render_material_mesh.id);
+//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Avocado.glb",color_render_material_mesh.id);//scale is messed up and uvs    
+//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/BarramundiFish.glb",color_render_material_mesh.id);//    
 //    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/BoxTextured.glb",color_render_material_mesh.id);
-//    FMJAssetModel test_model = fmj_asset_load_model_from_glb(&asset_ctx,"../data/models/Box.glb",color_render_material_mesh.id);
-//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Avocado.glb",color_render_material_mesh.id);//scale is messed up and uvs
-
-//    FMJAssetModel test_model = fmj_asset_load_model_from_glb(&asset_ctx,"../data/models/2CylinderEngine.glb",color_render_material_mesh.id);//crashes
-//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/BarramundiFish.glb",color_render_material_mesh.id);//
-
-//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Fox.glb",vu_render_material_mesh.id,&test_scene->buffer);        //no indices 16    
-    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Lantern.glb",color_render_material_mesh.id);//crashes        
-//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Duck.glb",color_render_material_mesh.id,&test_scene->buffer);//scale is messed up and uvs    
+    
     FMJAssetModel test_model = test_model_result.model;
-    fmj_asset_upload_model(&asset_tables,&asset_ctx,&test_model);
+
+    //fmj_asset_upload_model(&asset_tables,&asset_ctx,&duck_model_result.model);
     
 //    FMJSceneObject* test_so = fmj_stretch_buffer_check_out(FMJSceneObject,&test_scene->buffer.buffer,0);
-    FMJSceneObject model_instance = fmj_asset_create_model_instance(&asset_ctx,&test_model_result);
-    FMJSceneObject model_instance_2 = fmj_asset_create_model_instance(&asset_ctx,&test_model_result);    
+    u64 model_instance_id = fmj_asset_create_model_instance(&asset_ctx,&test_model_result);
+//    u64 model_instance_2_id = fmj_asset_create_model_instance(&asset_ctx,&test_model_result);
+//    u64 duck_instance = fmj_asset_create_model_instance(&asset_ctx,&duck_model_result);
+//    u64 duck_instance2 = fmj_asset_create_model_instance(&asset_ctx,&duck_model_result);
+//    u64 duck_instance3 = fmj_asset_create_model_instance(&asset_ctx,&duck_model_result);
+#if 1
     FMJ3DTrans new_trans;
     fmj_3dtrans_init(&new_trans);
-    new_trans.p = f3_create(0,-10,-25);
+    new_trans.p = f3_create(0,-1,-2);
+    new_trans.r = f3_axis_angle(f3_create(1,0,0),90);
+#else
+    FMJ3DTrans new_trans;
+    fmj_3dtrans_init(&new_trans);
+//    new_trans.p = f3_create(0,-10,-25);
+    new_trans.p = f3_create(0,0,-0.4);    
+//    new_trans.local_s = f3_create_f(0.001f);    
+//    new_trans.r = f3_axis_angle(f3_create(1,0,0),90);
+#endif
     
-    u64 test_child_so_id = AddModelToSceneObjectAsChild(&asset_ctx,root_node,&model_instance,new_trans);
+//    new_trans.s = f3_create_f(1.0f);
+    quaternion start_r = new_trans.r;
+    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,model_instance_id,new_trans);
 
+    FMJ3DTrans duck_trans;
+    fmj_3dtrans_init(&duck_trans);
+    duck_trans.p = f3_create(-10,0,0);
 
+//    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,duck_instance,duck_trans);    
+//    AddModelToSceneObjectAsChild(&asset_ctx,model_instance_id,duck_instance,duck_trans);
+
+//    FMJ3DTrans duck_trans2;
+    fmj_3dtrans_init(&duck_trans);
+    duck_trans.p = f3_create(10,0,0);
+//    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,duck_instance,duck_trans);    
+//    AddModelToSceneObjectAsChild(&asset_ctx,model_instance_id,duck_instance2,duck_trans);
+
+//    FMJ3DTrans duck_trans3;
+    fmj_3dtrans_init(&duck_trans);
+    duck_trans.p = f3_create(0,8,0);
+//    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,duck_instance,duck_trans);    
+//    AddModelToSceneObjectAsChild(&asset_ctx,duck_instance,duck_instance3,duck_trans);
     
+/*            
     FMJ3DTrans new_trans_2;
     fmj_3dtrans_init(&new_trans_2);
-    new_trans_2.p = f3_create(-10,-10,-25);
-    u64 test_child_so_id_2 = AddModelToSceneObjectAsChild(&asset_ctx,root_node,&model_instance_2,new_trans_2);
+    new_trans_2.p = f3_create(-10,0,0);
+//    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,model_instance_2_id,new_trans_2);
+    AddModelToSceneObjectAsChild(&asset_ctx,model_instance_id,model_instance_2_id,new_trans_2);
+*/
+    
+    FMJSceneObject* child_test_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,model_instance_id);
 
-    FMJSceneObject* child_test_so = fmj_stretch_buffer_check_out(FMJSceneObject,&root_node->children.buffer,test_child_so_id);
-    FMJSceneObject* child_test_so_2 = fmj_stretch_buffer_check_out(FMJSceneObject,&root_node->children.buffer,test_child_so_id_2);
+    //FMJSceneObject* duck_child_3 = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,duck_instance3);
+    
+//    FMJSceneObject* child_test_so_2 = fmj_stretch_buffer_check_out(FMJSceneObject,&root_node->children.buffer,test_child_so_id_2);
+
+//    fmj_stretch_buffer_check_in(&test_scene->buffer.buffer);
 //    new_trans.p = f3_create(-10,-10,-25);
 //    u64 test_child_so_id_2 = AddModelToSceneObjectAsChild(&asset_ctx,root_node,&model_instance_2,new_trans);
 
@@ -568,9 +648,12 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 //        test_model_result.scene_object.transform.local_p = f3_create(0,-10,-25);
 //        test_model_result.scene_object.transform.local_r = f3_axis_angle(f3_create(0,0,1),angle);
 //        test_model_result.scene_object->transform.p = f3_create(0,-10,-25);
-        root_node->transform.local_r = f3_axis_angle(f3_create(0,0,1),angle);
-//        child_test_so->transform.local_r = f3_axis_angle(f3_create(0,0,1),angle);
-        child_test_so_2->transform.local_r = f3_axis_angle(f3_create(0,1,0),angle);        
+//        root_node->transform.local_r = f3_axis_angle(f3_create(0,0,1),angle);
+        child_test_so->transform.local_r = quaternion_mul(f3_axis_angle(f3_create(0,1,0),angle),start_r);
+//        child_test_so->transform.local_s = f3_create_f(100);        
+        //duck_child_3->transform.local_r = f3_axis_angle(f3_create(0,1,0),angle);
+        
+        //      child_test_so_2->transform.local_r = f3_axis_angle(f3_create(0,1,0),angle);        
 //        child_test_so->transform. = f3_create(-10,-10,-25);        
 //        child_test_so->transform.r = 
         angle += 0.01f;
@@ -614,7 +697,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 //End game code
 
 //Render command creation(Render pass setup)
-        UpdateScene(test_scene);
+        UpdateScene(&asset_ctx,test_scene);
         fmj_scene_issue_render_commands(test_scene,&asset_ctx,rc_matrix_id,projection_matrix_id);
         
         for(int i = 0;i < fixed_quad_buffer.count;++i)

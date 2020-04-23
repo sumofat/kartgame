@@ -1,3 +1,7 @@
+//NOTE(Ray):This test mesh seems to use indinces thar are over teh vertex count and therefore appear invalid.
+//Our data should never have this case so we ignore this for now in our loader
+//FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/2CylinderEngine.glb",pn_render_material_mesh.id);
+
 #if !defined(ASSETS_H)
 
 #define CGLTF_IMPLEMENTATION
@@ -50,10 +54,7 @@ struct FMJAssetMesh
     u64 index16_count;
     GPUMeshResource mesh_resource;    
     u32 material_id;
-
     u64 metallic_roughness_texture_id;
-    FMJ3DTrans transform;
-    u64 matrix_id;
 }typedef FMJMeshAsset;
 
 struct FMJAssetModel
@@ -67,17 +68,18 @@ struct FMJAssetModelLoadResult
 {
     bool is_success;
     FMJAssetModel model;
-    FMJSceneObject scene_object;
+    u64 scene_object_id;
+//    FMJSceneObject scene_object;
 };
 
 void fmj_asset_init(AssetTables* asset_tables);
 FMJAssetModel fmj_asset_model_create(FMJAssetContext* ctx);
 u64 fmj_asset_texture_add(FMJAssetContext* ctx,LoadedTexture texture);
-FMJAssetMesh fmj_asset_create_mesh_from_cgltf_mesh(FMJAssetContext* ctx,cgltf_mesh* ma);
+f2 fmj_asset_create_mesh_from_cgltf_mesh(FMJAssetContext* ctx,cgltf_mesh* ma,u64 material_i);
 FMJAssetModel fmj_asset_load_model_from_glb(FMJAssetContext* ctx,const char* file_path,u32  material_id);
 void fmj_asset_load_meshes_recursively_gltf_node_(FMJAssetModelLoadResult* result,cgltf_node* node,FMJAssetContext* ctx,const char* file_path,u32  material_id,FMJSceneObject* so);
 FMJAssetModelLoadResult fmj_asset_load_model_from_glb_2(FMJAssetContext* ctx,const char* file_path,u32  material_id,FMJSceneObjectBuffer* sob);
-void fmj_asset_upload_model(AssetTables* asset_tables,FMJAssetContext*ctx,FMJAssetModel* ma);
+void fmj_asset_upload_meshes(FMJAssetContext*ctx,f2 range);
 
 #define ASSETS_H
 #endif
