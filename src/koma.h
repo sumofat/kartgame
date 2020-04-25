@@ -97,6 +97,7 @@ class GamePiecePhysicsCallback : public PxSimulationEventCallback
 
 	void onContact(const PxContactPairHeader& pairHeader, const PxContactPair* pairs, PxU32 nbPairs) override
 	{
+#if 0
 		for (PxU32 i = 0; i < nbPairs; i++)
 		{
 			const PxContactPair& cp = pairs[i];
@@ -142,6 +143,7 @@ class GamePiecePhysicsCallback : public PxSimulationEventCallback
                 fmj_stretch_buffer_check_in(&komas);
             }
 		}
+        #endif
 	}
 };
 

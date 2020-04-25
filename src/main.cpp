@@ -20,7 +20,6 @@ extern "C"{
 
 #include "platform_win32.h"
 
-
 struct AssetTables
 {
     AnyCache materials;
@@ -53,6 +52,8 @@ struct FMJAssetContext
 
 
 #include "assets.cpp"
+
+#include "camera.h"
 //BEGIN FMJSCENE TEST
 
 FMJSceneBuffer scenes;
@@ -167,26 +168,6 @@ void fmj_scene_issue_render_commands(FMJScene* s,FMJAssetContext* ctx,u64 c_mat,
 
 AssetTables asset_tables = {0};
 u64 material_count = 0;
-
-enum RenderCameraProjectionType
-{
-    perspective,
-    orthographic,
-    screen_space
-};
-
-struct RenderCamera
-{
-    FMJ3DTrans ot;//perspective and ortho only
-    f4x4 matrix;
-    f4x4 projection_matrix;
-    f4x4 spot_light_shadow_projection_matrix;
-    f4x4 point_light_shadow_projection_matrix;
-    RenderCameraProjectionType projection_type;
-    f32 size;//ortho only
-    f32 fov;//perspective only
-    f2 near_far_planes;
-};
 
 //draw nodes
 //TODO(Ray):Not for sure what convention to use here before we pull this into FMJ
@@ -407,6 +388,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     FMJStretchBuffer* matrix_buffer = &asset_tables.matrix_buffer;
     u64 projection_matrix_id = fmj_stretch_buffer_push(matrix_buffer,(void*)&rc.projection_matrix);
     u64 rc_matrix_id = fmj_stretch_buffer_push(matrix_buffer,(void*)&rc.matrix);
+    rc.matrix_id = rc_matrix_id;
     
     RenderCamera rc_ui = {};
     rc_ui.ot.p = f3_create(0,0,0);
@@ -552,9 +534,9 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     
     FMJ3DTrans kart_trans;
     fmj_3dtrans_init(&kart_trans);
-    kart_trans.p = f3_create(0,-0.3f,-1);    
+    kart_trans.p = f3_create(0,0.4f,-1);    
     quaternion start_r = kart_trans.r;
-//    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,kart_instance_id,kart_trans);
+    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,kart_instance_id,kart_trans);
     
     FMJ3DTrans duck_trans;
     fmj_3dtrans_init(&duck_trans);
@@ -599,12 +581,12 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     }
     
     FMJAssetMesh track_mesh = fmj_stretch_buffer_get(FMJAssetMesh,&asset_ctx.asset_tables->meshes,mesh_id);
-    FMJAssetMesh kart_mesh = fmj_stretch_buffer_get(FMJAssetMesh,&asset_ctx.asset_tables->meshes,kart_mesh_id);
+//    FMJAssetMesh kart_mesh = fmj_stretch_buffer_get(FMJAssetMesh,&asset_ctx.asset_tables->meshes,kart_mesh_id);
     FMJAssetMesh track_collision_mesh = track_mesh;
-    FMJAssetMesh kart_collision_mesh = kart_mesh;    
+//    FMJAssetMesh kart_collision_mesh = kart_mesh;    
     
     PhysicsShapeMesh track_physics_mesh = CreatePhysicsMeshShape(&track_mesh,physics_material);
-    PhysicsShapeMesh kart_physics_mesh  = CreatePhysicsMeshShape(&kart_mesh,physics_material);
+//    PhysicsShapeMesh kart_physics_mesh  = CreatePhysicsMeshShape(&kart_mesh,physics_material);
 
 
 	track_collision_mesh.vertex_data   = (f32*)track_physics_mesh.tri_mesh->getVertices();
@@ -638,7 +620,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     track_physics_so_.primitives_range = f2_create_f(tcm_id);
     
     u64 track_physics_id = fmj_stretch_buffer_push(&asset_ctx.scene_objects,&track_physics_so_);
-
+#if 0
     mesh_flags = kart_physics_mesh.tri_mesh->getTriangleMeshFlags();
     if(mesh_flags & PxTriangleMeshFlag::Enum::e16_BIT_INDICES)
     {
@@ -670,14 +652,17 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     kart_physics_so_.primitives_range = f2_create_f(kcm_id);
 
     u64 kart_physics_id = fmj_stretch_buffer_push(&asset_ctx.scene_objects,&kart_physics_so_);
+#endif
     
     AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,track_physics_id,track_physics_so_.transform);
-    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,kart_physics_id,kart_physics_so_.transform);
+    //AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,kart_physics_id,kart_physics_so_.transform);
     
 //    FMJSceneObject* kart_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,kart_instance_id);
-    
+
+    PhysicsShapeBox phyx_box_shape = PhysicsCode::CreateBox(f3_create(1.2f,0.2f,1.2f),physics_material);
+        
     RigidBody track_rbd = PhysicsCode::CreateStaticRigidbody(track_trans.p,track_physics_mesh.state);        
-    RigidBody kart_rbd = PhysicsCode::CreateDynamicRigidbody(kart_trans.p,kart_physics_mesh.state,true);
+    RigidBody kart_rbd = PhysicsCode::CreateDynamicRigidbody(kart_trans.p,phyx_box_shape.state,false);//kart_physics_mesh.state,true);
 
     PhysicsCode::AddActorToScene(scene, track_rbd);    
     PhysicsCode::AddActorToScene(scene, kart_rbd);
@@ -740,7 +725,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     //game global vars
     u32 tex_index = 0;
     f32 angle = 0;    
-    f2 cam_pitch_yaw = f2_create(0.0f,0.0f);
+
     f32 x_move = 0;
     bool show_title = true;
     f32 outer_angle_rot = 0;    
@@ -784,7 +769,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         track_physics_so->transform.local_r = new_r;
         fmj_stretch_buffer_check_in(&asset_ctx.scene_objects);
 
-        FMJSceneObject* kart_physics_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,kart_physics_id);
+        FMJSceneObject* kart_physics_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,kart_instance_id);
         pxt = ((PxRigidDynamic*)kart_rbd.state)->getGlobalPose();
         new_p = f3_create(pxt.p.x,pxt.p.y,pxt.p.z);
         new_r = quaternion_create(pxt.q.x,pxt.q.y,pxt.q.z,pxt.q.w);
@@ -813,30 +798,22 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         size.x = clamp(size.x,150,300);
         size.y = clamp(size.x,150,300);
         size.x = size.x * aspect_ratio;
-        fmj_stretch_buffer_check_in(&matrix_buffer);
+        fmj_stretch_buffer_check_in(&asset_ctx.asset_tables->matrix_buffer);
         size_sin += 0.001f;        
         *p_mat_ = init_ortho_proj_matrix(size,0.0f,1.0f);
 #endif
         f4x4 p_mat = *p_mat_;
         p_mat_ = nullptr;
-        fmj_stretch_buffer_check_in(matrix_buffer);
+        fmj_stretch_buffer_check_in(&asset_ctx.asset_tables->matrix_buffer);
 //end render camera modify
 
         SoundCode::ContinousPlay(&bgm_soundclip);
 //Render camera stated etc..  is finalized        
- //Free cam
-#if 0
-        cam_pitch_yaw = f2_add(cam_pitch_yaw,ps->input.mouse.delta_p);
-        quaternion pitch = f3_axis_angle(f3_create(1, 0, 0), cam_pitch_yaw.y);
-        quaternion yaw   = f3_axis_angle(f3_create(0, 1, 0), cam_pitch_yaw.x * -1);
-        quaternion turn_qt = quaternion_mul(pitch,yaw);        
-        rc.ot.r = turn_qt;
-#endif
-        rc.matrix = fmj_3dtrans_set_cam_view(&rc.ot);
-        f4x4* rc_mat = fmj_stretch_buffer_check_out(f4x4,matrix_buffer,rc_matrix_id);
-        *rc_mat = rc.matrix;
-        fmj_stretch_buffer_check_in(matrix_buffer);
 
+        fmj_camera_orbit(&asset_ctx,&rc,ps->input,ps->time.delta_seconds,kart_physics_so->transform,2);
+//        fmj_camera_chase(&asset_ctx,&rc,ps->input,ps->time.delta_seconds,kart_physics_so->transform,f3_create(0,3,-3));
+//        fmj_camera_free(&asset_ctx,&rc,ps->input,ps->time.delta_seconds);
+        
 //End game code
 
 //Render command creation(Render pass setup)

@@ -104,11 +104,11 @@ static PxDefaultAllocator gDefaultAllocatorCallback;
         PhysicsShapeBox result;
         f3 d = f3_div_s(dim,2.0f);
         PxBoxGeometry box(d.x,d.y,d.z);
-        result.state = box;
+        result.box = box;
         result.dim = dim;
         result.extents = d;
         ASSERT(box.isValid());
-        result.shape = physics->createShape(box, *material.state,true);
+        result.state = physics->createShape(box, *material.state,true);
         return result;
     }
 
@@ -386,11 +386,12 @@ static PxDefaultAllocator gDefaultAllocatorCallback;
         physx::PxTriangleMeshGeometry mesh_geo = PxTriangleMeshGeometry(aTriangleMesh);
         result.state = physics->createShape(mesh_geo,&material.state,true);
 
-
+        //TODO(Ray):Add support for mesh convex geometry types. 
+/*
         PxConvexMeshGeometry convexGeom = PxConvexMeshGeometry(convexBox);
         convexShape = PxRigidActorExt::createExclusiveShape(*meshActor, convexGeom,
         defaultMaterial);
-
+*/
         
         return result;        
     }

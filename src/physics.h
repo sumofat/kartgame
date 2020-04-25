@@ -35,8 +35,8 @@ struct PhysicsShapeBox
 {
     f3 dim;
     f3 extents;
-    PxBoxGeometry state;
-    PxShape* shape;
+    PxBoxGeometry box;
+    PxShape* state;
 };
 
 enum RigidBodyType
