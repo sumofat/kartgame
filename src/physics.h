@@ -25,6 +25,12 @@ struct PhysicsShapeSphere
     PxShape* shape;
 };
 
+struct PhysicsShapeMesh
+{
+    PxShape* state;
+    PxTriangleMesh* tri_mesh;
+};
+
 struct PhysicsShapeBox
 {
     f3 dim;
@@ -86,6 +92,7 @@ namespace PhysicsCode
         PxPairFlags& pairFlags, const void* constantBlock, PxU32 constantBlockSize);    
 
     RigidBody CreateDynamicRigidbody(f3 p,PxShape* shape,bool is_kinematic);
+    RigidBody CreateStaticRigidbody(f3 p,PxShape* shape);
     void SetRigidBodyUserData(RigidBody body,void* data);
     
     PhysicsScene CreateScene(FilterShaderCallback callback);
@@ -111,6 +118,8 @@ namespace PhysicsCode
     void SetMass(RigidBody rbd,float mass);
     void SetRestitutionCombineMode(PhysicsMaterial mat,physx::PxCombineMode::Enum mode);    
     void SetFrictionCombineMode(PhysicsMaterial mat,physx::PxCombineMode::Enum mode);
+
+    PhysicsShapeMesh CreatePhyshicsMeshShape(void* vertex_data,u64 vertex_count,void* index_data,u64 index_count,u16 index_type,PhysicsMaterial material);
 };
 
 #define PHYSICS_H

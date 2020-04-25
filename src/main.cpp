@@ -58,6 +58,28 @@ struct FMJAssetContext
 FMJSceneBuffer scenes;
 FMJStretchBuffer render_command_buffer;
 
+PhysicsShapeMesh CreatePhysicsMeshShape(FMJAssetMesh* mesh,PhysicsMaterial material)
+{
+    PhysicsShapeMesh result;
+    if(mesh->index_component_size == fmj_asset_index_component_size_none)
+    {
+        result = PhysicsCode::CreatePhyshicsMeshShape(mesh->vertex_data,mesh->vertex_count,0,0,0,material);           
+    }
+    else if(mesh->index_component_size == fmj_asset_index_component_size_32)
+    {
+        result = PhysicsCode::CreatePhyshicsMeshShape(mesh->vertex_data,mesh->vertex_count,mesh->index_32_data,mesh->index32_count,fmj_asset_index_component_size_32,material);
+    }
+    else if(mesh->index_component_size == fmj_asset_index_component_size_16)
+    {
+        result = PhysicsCode::CreatePhyshicsMeshShape(mesh->vertex_data,mesh->vertex_count,mesh->index_16_data,mesh->index16_count,fmj_asset_index_component_size_16,material);
+    }
+    else
+    {
+        ASSERT(false);
+    }
+    return result;
+}
+
 void fmj_scene_process_children_recrusively(FMJSceneObject* so,u64 c_mat,u64 p_mat,FMJAssetContext* ctx)
 {
     for(int i = 0;i < so->children.buffer.fixed.count;++i)
@@ -105,7 +127,9 @@ void fmj_scene_process_children_recrusively(FMJSceneObject* so,u64 c_mat,u64 p_m
                     }
             
                     geo.offset = 0;
+                    geo.base_color = m.base_color;
                     com.geometry = geo;
+
                     com.material_id = m.material_id;
                     com.texture_id = m.metallic_roughness_texture_id;
                     com.model_matrix_id = child_so->m_id;
@@ -257,8 +281,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     //end audio setup
 
     //BEGIN Setup physics stuff
-    physics_material = PhysicsCode::CreateMaterial(0.1f, 0.1f, 1.0f);
-    PhysicsCode::SetRestitutionCombineMode(physics_material,physx::PxCombineMode::eMULTIPLY);
+    physics_material = PhysicsCode::CreateMaterial(0.5f, 0.5f, 0.5f);
+    PhysicsCode::SetRestitutionCombineMode(physics_material,physx::PxCombineMode::eMIN);
     PhysicsCode::SetFrictionCombineMode(physics_material,physx::PxCombineMode::eMIN);
     scene = PhysicsCode::CreateScene(KomaFilterShader);
     GamePiecePhysicsCallback* e = new GamePiecePhysicsCallback();
@@ -494,46 +518,44 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     root_node->transform = root_t;
     fmj_stretch_buffer_check_in(&asset_ctx.scene_objects);
 
-
-    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/BrainStem.glb",pn_render_material_mesh.id);
+//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/BrainStem.glb",pn_render_material_mesh.id);
 //    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/2CylinderEngine.glb",pn_render_material_mesh.id);
     
 //    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Box.glb",color_render_material_mesh.id);    
 //    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Fox.glb",vu_render_material_mesh.id);
 //    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Lantern.glb",color_render_material_mesh.id);
+    FMJAssetModelLoadResult track_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/track.glb",color_render_material_mesh.id);
+    FMJAssetModelLoadResult kart_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/kart.glb",color_render_material_mesh.id);        
 //    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Duck.glb",color_render_material_mesh.id);
 //    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Avocado.glb",color_render_material_mesh.id);//scale is messed up and uvs    
 //    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/BarramundiFish.glb",color_render_material_mesh.id);//    
 //    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/BoxTextured.glb",color_render_material_mesh.id);
     
-    FMJAssetModel test_model = test_model_result.model;
+    //FMJAssetModel test_model = test_model_result.model;
 
     //fmj_asset_upload_model(&asset_tables,&asset_ctx,&duck_model_result.model);
     
 //    FMJSceneObject* test_so = fmj_stretch_buffer_check_out(FMJSceneObject,&test_scene->buffer.buffer,0);
-    u64 model_instance_id = fmj_asset_create_model_instance(&asset_ctx,&test_model_result);
+    u64 track_instance_id = fmj_asset_create_model_instance(&asset_ctx,&track_model_result);
+    u64 kart_instance_id = fmj_asset_create_model_instance(&asset_ctx,&kart_model_result);    
 //    u64 model_instance_2_id = fmj_asset_create_model_instance(&asset_ctx,&test_model_result);
 //    u64 duck_instance = fmj_asset_create_model_instance(&asset_ctx,&duck_model_result);
 //    u64 duck_instance2 = fmj_asset_create_model_instance(&asset_ctx,&duck_model_result);
 //    u64 duck_instance3 = fmj_asset_create_model_instance(&asset_ctx,&duck_model_result);
-#if 1
-    FMJ3DTrans new_trans;
-    fmj_3dtrans_init(&new_trans);
-    new_trans.p = f3_create(0,-1,-2);
-    new_trans.r = f3_axis_angle(f3_create(1,0,0),90);
-#else
-    FMJ3DTrans new_trans;
-    fmj_3dtrans_init(&new_trans);
-//    new_trans.p = f3_create(0,-10,-25);
-    new_trans.p = f3_create(0,0,-0.4);    
-//    new_trans.local_s = f3_create_f(0.001f);    
-//    new_trans.r = f3_axis_angle(f3_create(1,0,0),90);
-#endif
-    
-//    new_trans.s = f3_create_f(1.0f);
-    quaternion start_r = new_trans.r;
-    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,model_instance_id,new_trans);
 
+    FMJ3DTrans track_trans;
+    fmj_3dtrans_init(&track_trans);
+    track_trans.p = f3_create(0,0,0);
+    track_trans.r = f3_axis_angle(f3_create(0,0,1),0);
+    
+//    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,track_instance_id,track_trans);
+    
+    FMJ3DTrans kart_trans;
+    fmj_3dtrans_init(&kart_trans);
+    kart_trans.p = f3_create(0,-0.3f,-1);    
+    quaternion start_r = kart_trans.r;
+//    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,kart_instance_id,kart_trans);
+    
     FMJ3DTrans duck_trans;
     fmj_3dtrans_init(&duck_trans);
     duck_trans.p = f3_create(-10,0,0);
@@ -561,11 +583,116 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     AddModelToSceneObjectAsChild(&asset_ctx,model_instance_id,model_instance_2_id,new_trans_2);
 */
     
-    FMJSceneObject* child_test_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,model_instance_id);
+    FMJSceneObject* track_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,track_instance_id);
+    FMJSceneObject* kart_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,kart_instance_id);
+    
+    u64 mesh_id;
+    u64 kart_mesh_id;
+    if(!fmj_asset_get_mesh_id_by_name("track",&asset_ctx,track_so,&mesh_id))
+    {
+        ASSERT(false);    
+    }
+    
+    if(!fmj_asset_get_mesh_id_by_name("kart",&asset_ctx,kart_so,&kart_mesh_id))
+    {
+        ASSERT(false);    
+    }
+    
+    FMJAssetMesh track_mesh = fmj_stretch_buffer_get(FMJAssetMesh,&asset_ctx.asset_tables->meshes,mesh_id);
+    FMJAssetMesh kart_mesh = fmj_stretch_buffer_get(FMJAssetMesh,&asset_ctx.asset_tables->meshes,kart_mesh_id);
+    FMJAssetMesh track_collision_mesh = track_mesh;
+    FMJAssetMesh kart_collision_mesh = kart_mesh;    
+    
+    PhysicsShapeMesh track_physics_mesh = CreatePhysicsMeshShape(&track_mesh,physics_material);
+    PhysicsShapeMesh kart_physics_mesh  = CreatePhysicsMeshShape(&kart_mesh,physics_material);
 
+
+	track_collision_mesh.vertex_data   = (f32*)track_physics_mesh.tri_mesh->getVertices();
+	track_collision_mesh.vertex_count  = track_physics_mesh.tri_mesh->getNbVertices() * 3;
+
+    physx::PxTriangleMeshFlags mesh_flags = track_physics_mesh.tri_mesh->getTriangleMeshFlags();
+    if(mesh_flags & PxTriangleMeshFlag::Enum::e16_BIT_INDICES)
+    {
+        track_collision_mesh.index_component_size = fmj_asset_index_component_size_16;
+        track_collision_mesh.index_16_data = (u16*)track_physics_mesh.tri_mesh->getTriangles();
+        track_collision_mesh.index16_count = track_physics_mesh.tri_mesh->getNbTriangles() * 3;
+        track_collision_mesh.index_16_data_size = track_collision_mesh.index16_count * sizeof(u16);        
+    }
+    else
+    {
+        track_collision_mesh.index_component_size = fmj_asset_index_component_size_32;
+        track_collision_mesh.index_32_data = (u32*)track_physics_mesh.tri_mesh->getTriangles();
+        track_collision_mesh.index32_count = track_physics_mesh.tri_mesh->getNbTriangles() * 3;
+        track_collision_mesh.index_32_data_size = track_collision_mesh.index32_count * sizeof(u32);                
+    }
+
+    u64 tcm_id = fmj_stretch_buffer_push(&asset_ctx.asset_tables->meshes,&track_collision_mesh);
+    fmj_asset_upload_meshes(&asset_ctx,f2_create(tcm_id,tcm_id));
+
+    FMJSceneObject track_physics_so_ = {};//*track_so;
+    track_physics_so_.transform = kart_trans;
+    track_physics_so_.children.buffer = fmj_stretch_buffer_init(1,sizeof(u64),8);
+    track_physics_so_.m_id = track_so->m_id;
+    track_physics_so_.data = 0;//track_so.data;    
+    track_physics_so_.type = 1;
+    track_physics_so_.primitives_range = f2_create_f(tcm_id);
+    
+    u64 track_physics_id = fmj_stretch_buffer_push(&asset_ctx.scene_objects,&track_physics_so_);
+
+    mesh_flags = kart_physics_mesh.tri_mesh->getTriangleMeshFlags();
+    if(mesh_flags & PxTriangleMeshFlag::Enum::e16_BIT_INDICES)
+    {
+        kart_collision_mesh.index_16_data = (u16*)kart_physics_mesh.tri_mesh->getTriangles();
+        kart_collision_mesh.index16_count = kart_physics_mesh.tri_mesh->getNbTriangles() * 3;
+        kart_collision_mesh.index_16_data_size = kart_collision_mesh.index16_count * sizeof(u16);
+        kart_collision_mesh.index_component_size = fmj_asset_index_component_size_16;
+    }
+    else
+    {
+        kart_collision_mesh.index_component_size = fmj_asset_index_component_size_32;
+        kart_collision_mesh.index_32_data = (u32*)kart_physics_mesh.tri_mesh->getTriangles();
+        kart_collision_mesh.index32_count = kart_physics_mesh.tri_mesh->getNbTriangles() * 3;
+        kart_collision_mesh.index_32_data_size = kart_collision_mesh.index32_count * sizeof(u32);                
+    }
+
+	kart_collision_mesh.vertex_data   = (f32*)kart_physics_mesh.tri_mesh->getVertices();
+	kart_collision_mesh.vertex_count  = kart_physics_mesh.tri_mesh->getNbVertices() * 3;
+
+    u64 kcm_id = fmj_stretch_buffer_push(&asset_ctx.asset_tables->meshes,&kart_collision_mesh);
+    fmj_asset_upload_meshes(&asset_ctx,f2_create(kcm_id,kcm_id));
+
+    FMJSceneObject kart_physics_so_ = {};
+    kart_physics_so_.transform = kart_trans;
+    kart_physics_so_.children.buffer = fmj_stretch_buffer_init(1,sizeof(u64),8);
+    kart_physics_so_.m_id = kart_so->m_id;
+    kart_physics_so_.data = 0;
+    kart_physics_so_.type = 1;
+    kart_physics_so_.primitives_range = f2_create_f(kcm_id);
+
+    u64 kart_physics_id = fmj_stretch_buffer_push(&asset_ctx.scene_objects,&kart_physics_so_);
+    
+    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,track_physics_id,track_physics_so_.transform);
+    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,kart_physics_id,kart_physics_so_.transform);
+    
+//    FMJSceneObject* kart_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,kart_instance_id);
+    
+    RigidBody track_rbd = PhysicsCode::CreateStaticRigidbody(track_trans.p,track_physics_mesh.state);        
+    RigidBody kart_rbd = PhysicsCode::CreateDynamicRigidbody(kart_trans.p,kart_physics_mesh.state,true);
+
+    PhysicsCode::AddActorToScene(scene, track_rbd);    
+    PhysicsCode::AddActorToScene(scene, kart_rbd);
+
+//    PhysicsCode::UpdateRigidBodyMassAndInertia(track_rbd,1);
+//    PhysicsCode::SetMass(track_rbd,1);
+//    PhysicsCode::DisableGravity((PxActor*)track_rbd.state,true);
+    
+//    k.rigid_body = rbd;
+    PhysicsCode::UpdateRigidBodyMassAndInertia(kart_rbd,1);
+    PhysicsCode::SetMass(kart_rbd,1);
+    
     //FMJSceneObject* duck_child_3 = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,duck_instance3);
     
-//    FMJSceneObject* child_test_so_2 = fmj_stretch_buffer_check_out(FMJSceneObject,&root_node->children.buffer,test_child_so_id_2);
+//    FMJSceneObject* track_so_2 = fmj_stretch_buffer_check_out(FMJSceneObject,&root_node->children.buffer,test_child_so_id_2);
 
 //    fmj_stretch_buffer_check_in(&test_scene->buffer.buffer);
 //    new_trans.p = f3_create(-10,-10,-25);
@@ -581,7 +708,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 //    fmj_3dtrans_update(&test_mesh_t);    
 //    SetWorldP(test_so,f3_create(0,-10,-25));
 //    test_model_result.scene_object->transform.local_p = f3_create(0,-10,-25);
-//    child_test_so->transform.local_p = f3_create(10,0,0);
+//    track_so->transform.local_p = f3_create(10,0,0);
     
 //end game object setup
 
@@ -649,13 +776,29 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 //        test_model_result.scene_object.transform.local_r = f3_axis_angle(f3_create(0,0,1),angle);
 //        test_model_result.scene_object->transform.p = f3_create(0,-10,-25);
 //        root_node->transform.local_r = f3_axis_angle(f3_create(0,0,1),angle);
-        child_test_so->transform.local_r = quaternion_mul(f3_axis_angle(f3_create(0,1,0),angle),start_r);
-//        child_test_so->transform.local_s = f3_create_f(100);        
+        FMJSceneObject* track_physics_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,track_physics_id);
+        PxTransform pxt = ((PxRigidDynamic*)track_rbd.state)->getGlobalPose();
+        f3 new_p = f3_create(pxt.p.x,pxt.p.y,pxt.p.z);
+        quaternion new_r = quaternion_create(pxt.q.x,pxt.q.y,pxt.q.z,pxt.q.w);
+        track_physics_so->transform.local_p = new_p;
+        track_physics_so->transform.local_r = new_r;
+        fmj_stretch_buffer_check_in(&asset_ctx.scene_objects);
+
+        FMJSceneObject* kart_physics_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,kart_physics_id);
+        pxt = ((PxRigidDynamic*)kart_rbd.state)->getGlobalPose();
+        new_p = f3_create(pxt.p.x,pxt.p.y,pxt.p.z);
+        new_r = quaternion_create(pxt.q.x,pxt.q.y,pxt.q.z,pxt.q.w);
+        kart_physics_so->transform.local_p = new_p;
+        kart_physics_so->transform.local_r = new_r;        
+        fmj_stretch_buffer_check_in(&asset_ctx.scene_objects);
+        
+//        track_so->transform.local_r = quaternion_mul(f3_axis_angle(f3_create(0,1,0),angle),start_r);
+//        track_so->transform.local_s = f3_create_f(100);        
         //duck_child_3->transform.local_r = f3_axis_angle(f3_create(0,1,0),angle);
         
-        //      child_test_so_2->transform.local_r = f3_axis_angle(f3_create(0,1,0),angle);        
-//        child_test_so->transform. = f3_create(-10,-10,-25);        
-//        child_test_so->transform.r = 
+        //      track_so_2->transform.local_r = f3_axis_angle(f3_create(0,1,0),angle);        
+//        track_so->transform. = f3_create(-10,-10,-25);        
+//        track_so->transform.r = 
         angle += 0.01f;
         
 //        f4x4* tmt = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,test_mesh_model_matrix_id);        
@@ -762,9 +905,13 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                     f4x4 world_mat = f4x4_mul(c_mat,m_mat);
                     f4x4 finalmat = f4x4_mul(p_mat,world_mat);
                     m_mat.c0.x = (f32)(matrix_quad_buffer.count * sizeof(f4x4));
-
+                    m_mat.c0.y = 5.0f;
+                    
+                    f4 base_color = command.geometry.base_color;
+                    
+                    m_mat.c1 = base_color;
                     fmj_fixed_buffer_push(&matrix_quad_buffer,(void*)&finalmat);        
-
+                    
                     D12RendererCode::AddRootSignatureCommand(D12RendererCode::root_sig);
                     D12RendererCode::AddViewportCommand(f4_create(0,0,ps->window.dim.x,ps->window.dim.y));
                     D12RendererCode::AddScissorRectCommand(CD3DX12_RECT(0,0,LONG_MAX,LONG_MAX));

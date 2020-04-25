@@ -1,4 +1,4 @@
-#define USE_DEBUG_LAYER 1
+#define USE_DEBUG_LAYER 0
 
 // DirectX 12 specific headers.
 #include <d3d12.h>

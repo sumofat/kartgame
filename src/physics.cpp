@@ -9,6 +9,7 @@ static PxDefaultAllocator gDefaultAllocatorCallback;
     physx::PxRigidStatic* test_rigid_body;
     physx::PxTriangleMeshGeometry test_mesh_geo;
     physx::PxPhysics* physics;
+    physx::PxCooking* cooking;
 
     float accumulator = 0.0;
     float step_size = 0;
@@ -45,6 +46,21 @@ static PxDefaultAllocator gDefaultAllocatorCallback;
 
         if (!physics)
             ASSERT(false);
+
+        cooking = PxCreateCooking(PX_PHYSICS_VERSION, *mFoundation, PxCookingParams(scale));
+        if (!cooking)
+            ASSERT(false);
+
+	
+        PxCookingParams params(scale);
+        // disable mesh cleaning - perform mesh validation on development configurations
+        params.meshPreprocessParams |= PxMeshPreprocessingFlag::eDISABLE_CLEAN_MESH;
+        // disable edge precompute, edges are set for each triangle, slows contact generation
+        params.meshPreprocessParams |= PxMeshPreprocessingFlag::eDISABLE_ACTIVE_EDGES_PRECOMPUTE;
+        // lower hierarchy for internal mesh
+        //params.meshCookingHint = PxMeshCookingHint::eCOOKING_PERFORMANCE;
+        cooking->setParams(params);
+        
     }
     
     PxFilterFlags DefaultFilterShader(
@@ -173,9 +189,12 @@ static PxDefaultAllocator gDefaultAllocatorCallback;
                 ASSERT(false);
             scene_desc.cpuDispatcher = mCpuDispatcher;
         }
+
         scene_desc.gravity = PxVec3(0, -9.36f, 0);
+
         scene_desc.kineKineFilteringMode = PxPairFilteringMode::eKEEP;
         scene_desc.staticKineFilteringMode = PxPairFilteringMode::eKEEP;
+        
         if (!scene_desc.filterShader)
             scene_desc.filterShader = callback;
         if(!scene_desc.isValid())
@@ -307,5 +326,78 @@ static PxDefaultAllocator gDefaultAllocatorCallback;
         return true;
     }
 
+    PhysicsShapeMesh CreatePhyshicsMeshShape(void* vertex_data,u64 vertex_count,void* index_data,u64 index_count,u16 index_type,PhysicsMaterial material)
+    {
+        PhysicsShapeMesh result = {};
+        PxTriangleMeshDesc tmd = PxTriangleMeshDesc();
+        PxBoundedData v_data = PxBoundedData();
+        v_data.stride = sizeof(PxVec3);
+        int mesh_index = 0;
+        v_data.data  = vertex_data;
+        v_data.count = vertex_count;
+        if(index_data)
+        {
+            PxBoundedData e_data = PxBoundedData();
+            ASSERT(index_type < 3);
+            if(index_type == 2)//16 bit
+            {
+                e_data.stride = sizeof(PxU16) * 3;
+                e_data.data = index_data;
+                e_data.count = index_count / 3;
+                tmd.flags = PxMeshFlag::Enum::e16_BIT_INDICES;
+            }
+            else if(index_type == 1)//32 bit
+            {
+                e_data.stride = sizeof(PxU32) * 3;
+                e_data.data = index_data;
+                e_data.count = index_count / 3;
+            }
+            else
+            {
+                //NEED VALID INDEX TYPE
+                ASSERT(false);
+            }
+            tmd.triangles = e_data;        
+        }
+        else
+        {
+            ASSERT(false);
+        }
+	
+        tmd.points = v_data;
+
+        if (!tmd.isValid())
+            ASSERT(false);
+	
+        // mesh should be validated before cooked without the mesh cleaning
+        bool res = cooking->validateTriangleMesh(tmd);
+        PX_ASSERT(res);
+        if(!res)
+        {
+//n            ASSERT(false);
+        }
+        
+        PxTriangleMesh* aTriangleMesh = cooking->createTriangleMesh(tmd,physics->getPhysicsInsertionCallback());
+        if(!aTriangleMesh)
+        {
+            ASSERT(false);
+        }
+        result.tri_mesh = aTriangleMesh;
+        physx::PxTriangleMeshGeometry mesh_geo = PxTriangleMeshGeometry(aTriangleMesh);
+        result.state = physics->createShape(mesh_geo,&material.state,true);
+
+
+        PxConvexMeshGeometry convexGeom = PxConvexMeshGeometry(convexBox);
+        convexShape = PxRigidActorExt::createExclusiveShape(*meshActor, convexGeom,
+        defaultMaterial);
+
+        
+        return result;        
+    }
 };
+
+
+
+
+
 

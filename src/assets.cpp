@@ -39,7 +39,6 @@ f2 fmj_asset_create_mesh_from_cgltf_mesh(FMJAssetContext* ctx,cgltf_mesh* ma,u64
     u32 mesh_id = ctx->asset_tables->meshes.fixed.count;    
     f2 result = f2_create(mesh_id,mesh_id);
 
-    //Extract mesh binary data
     for(int j = 0;j < ma->primitives_count;++j)
     {
         
@@ -86,9 +85,10 @@ f2 fmj_asset_create_mesh_from_cgltf_mesh(FMJAssetContext* ctx,cgltf_mesh* ma,u64
             }
 
             cgltf_float* bcf = mat->pbr_metallic_roughness.base_color_factor;
-            f4 base_color_value = f4_create(bcf[0],bcf[1],bcf[2],bcf[3]);
-            cgltf_float* mf = &mat->pbr_metallic_roughness.metallic_factor;
-            cgltf_float* rf = &mat->pbr_metallic_roughness.roughness_factor;
+            mesh.base_color = f4_create(bcf[0],bcf[1],bcf[2],bcf[3]);
+            
+//            cgltf_float* mf = &mat->pbr_metallic_roughness.metallic_factor;
+//            cgltf_float* rf = &mat->pbr_metallic_roughness.roughness_factor;
         }
             
         if(mat->has_pbr_specular_glossiness)
@@ -117,19 +117,13 @@ f2 fmj_asset_create_mesh_from_cgltf_mesh(FMJAssetContext* ctx,cgltf_mesh* ma,u64
         //occlusionTexture
         //normalTexture
 
-        //TODO(Ray):Next we wil lmake append char to char verify that we are treating these primitives
-        //as such in the importer and make sure that the propery uvs are being imported on the read side.
-        //Something is not quite right.
         mesh.name = fmj_string_create(ma->name,ctx->perm_mem);
-        
-        mesh.material_id = 0;//AssetSystem::default_mat;
-        
-        //get buffer data from mesh
+        mesh.material_id = 0;
+
         if(prim.type == cgltf_primitive_type_triangles)
         {
             bool has_got_first_uv_set = false;
-            // 
-            //Get indices
+
             if(prim.indices)
             {
                 u64 istart_offset = prim.indices->offset + prim.indices->buffer_view->offset;
@@ -162,13 +156,11 @@ f2 fmj_asset_create_mesh_from_cgltf_mesh(FMJAssetContext* ctx,cgltf_mesh* ma,u64
             for(int k = 0;k < prim.attributes_count;++k)
             {
                 cgltf_attribute ac = prim.attributes[k];
-                
-                //Get verts
+
                 cgltf_accessor* acdata = ac.data;
                 u64 count = acdata->count;
                 cgltf_buffer_view* bf = acdata->buffer_view;
                 {
-                    //Get vertex buffer
                     u64 start_offset = bf->offset;
                     u32 stride = (u32)bf->stride;
                     cgltf_buffer* buf = bf->buffer;
@@ -267,7 +259,7 @@ void fmj_asset_load_meshes_recursively_gltf_node_(FMJAssetModelLoadResult* resul
         f2 mesh_range = f2_create_f(0);
         if(child->mesh)
         {
-            result->model.model_name = fmj_string_create((char*)file_path,ctx->perm_mem);                
+            //result->model.model_name = fmj_string_create((char*)file_path,ctx->perm_mem);                
             mesh_range = fmj_asset_create_mesh_from_cgltf_mesh(ctx,child->mesh,material_id);
             type = 1;
             fmj_asset_upload_meshes(ctx,mesh_range);            
@@ -305,7 +297,7 @@ FMJAssetModelLoadResult fmj_asset_load_model_from_glb_2(FMJAssetContext* ctx,con
         //TODO(ray):If we didnt  get a mesh release any memory allocated.
         if(data->nodes_count > 0)
         {
-            result.model = fmj_asset_model_create(ctx);
+            //result.model = fmj_asset_model_create(ctx);
             FMJ3DTrans parent_trans = {};
             fmj_3dtrans_init(&parent_trans);
 
@@ -350,7 +342,7 @@ FMJAssetModelLoadResult fmj_asset_load_model_from_glb_2(FMJAssetContext* ctx,con
                 f2 mesh_range = f2_create_f(0);                
                 if(root_node->mesh)
                 {
-                    result.model.model_name = fmj_string_create((char*)file_path,ctx->perm_mem);                
+                    //result.model.model_name = fmj_string_create((char*)file_path,ctx->perm_mem);                
                     mesh_range = fmj_asset_create_mesh_from_cgltf_mesh(ctx,root_node->mesh,material_id);
                     type = 1;
                     fmj_asset_upload_meshes(ctx,mesh_range);
@@ -582,4 +574,30 @@ u64 fmj_asset_create_model_instance(FMJAssetContext*ctx,FMJAssetModelLoadResult*
     return dest_id;
 }
 
+bool fmj_asset_get_mesh_id_by_name(char* name,FMJAssetContext* ctx,FMJSceneObject* start,u64* result)
+{
+    for(int i = 0;i <= start->primitives_range.y;++i)
+    {
+        FMJAssetMesh mesh = fmj_stretch_buffer_get(FMJAssetMesh,&ctx->asset_tables->meshes,i);
+        if(fmj_string_cmp_char(mesh.name,name))
+        {
+            *result = (u64)i;
+            return true;
+        }
+    }
+
+    bool is_found = false;
+    for(int c = 0;c < start->children.buffer.fixed.count;++c)
+    {
+        u64 c_id = fmj_stretch_buffer_get(u64,&start->children.buffer,c);
+        FMJSceneObject child_so = fmj_stretch_buffer_get(FMJSceneObject,&ctx->scene_objects,c_id);
+        is_found = fmj_asset_get_mesh_id_by_name(name,ctx,&child_so,result);
+        if(is_found)
+        {
+            break;
+        }
+    }
+    
+    return is_found;
+}
 

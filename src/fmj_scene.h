@@ -124,7 +124,7 @@ u64 AddChildToSceneObject(FMJAssetContext* ctx,FMJSceneObject* so,FMJ3DTrans* ne
     fmj_stretch_buffer_push(&so->children.buffer,&so_id);
     return so_id;
 }
-// 
+
 //NOTE(Ray):When adding a chid ot p is local position and p is offset from parents ot p.
 u64 AddChildToSceneObject(FMJAssetContext* ctx,FMJSceneObject* so,f3 p,quaternion r,f3 s,void** data)
 {
@@ -232,6 +232,8 @@ void UpdateSceneBuffer(FMJAssetContext* ctx,FMJSceneBuffer* buffer)
     }
 }
 
+//TODO(Ray):Later we will need to make sure to take the parent and unchild this so if any.
+//TODO(Ray):Nothing in here is model specific. Perhaps this should be generalized add SO function
 void AddModelToSceneObjectAsChild(FMJAssetContext* ctx,u64 so_id,u64 model_so_id,FMJ3DTrans new_child)
 {
         //and the local p is the absolute p relative to the parent p.

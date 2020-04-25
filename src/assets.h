@@ -14,8 +14,9 @@ enum FMJAssetVertCompressionType
 
 enum FMJAssetIndexComponentSize
 {
-    fmj_asset_index_component_size_32,
-    fmj_asset_index_component_size_16
+    fmj_asset_index_component_size_none = 0,
+    fmj_asset_index_component_size_32 = 1,
+    fmj_asset_index_component_size_16 = 2
 }typedef FMJAssetIndexComponentSize;
 
 struct FMJAssetMesh
@@ -55,6 +56,8 @@ struct FMJAssetMesh
     GPUMeshResource mesh_resource;    
     u32 material_id;
     u64 metallic_roughness_texture_id;
+
+    f4 base_color;
 }typedef FMJMeshAsset;
 
 struct FMJAssetModel
@@ -67,7 +70,7 @@ struct FMJAssetModel
 struct FMJAssetModelLoadResult
 {
     bool is_success;
-    FMJAssetModel model;
+//    FMJAssetModel model;
     u64 scene_object_id;
 //    FMJSceneObject scene_object;
 };
