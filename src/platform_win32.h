@@ -217,12 +217,8 @@ LRESULT CALLBACK MainWindowCallbackFunc(HWND Window,
                    LPARAM LParam)
 {
 
-/*
-#if IMGUI
     if (ImGui_ImplWin32_WndProcHandler(Window, Message, WParam, LParam))
         return true;
-#endif
-*/
     
     LRESULT Result = 0;
     switch(Message)

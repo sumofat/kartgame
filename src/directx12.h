@@ -1,4 +1,4 @@
-#define USE_DEBUG_LAYER 0
+#define USE_DEBUG_LAYER 1
 
 // DirectX 12 specific headers.
 #include <d3d12.h>
@@ -2242,7 +2242,7 @@ namespace D12RendererCode
         cle.list->ResourceBarrier(1, &barrier);
     }
     
-    void EndFrame()
+    void EndFrame(ID3D12DescriptorHeap* imgui_heap)
     {
         fmj_thread_begin_ticket_mutex(&upload_operations.ticket_mutex);
         u32 current_backbuffer_index = D12RendererCode::GetCurrentBackBufferIndex();
@@ -2267,8 +2267,11 @@ namespace D12RendererCode
         D12CommandListEntry command_list = GetAssociatedCommandList(allocator_entry);
         
         //Graphics
+        
         ID3D12Resource* back_buffer = D12RendererCode::GetCurrentBackBuffer();
+        
         bool fc = IsFenceComplete(fence,allocator_entry->fence_value);
+        
         ASSERT(fc);
         allocator_entry->allocator->Reset();
         
@@ -2435,53 +2438,8 @@ namespace D12RendererCode
         
         fmj_arena_deallocate(&render_com_buf.arena,false);
         render_com_buf.count = 0;
-#if 0
-        D12CommandAllocatorEntry* ae = D12RendererCode::GetFreeCommandAllocatorEntry(D3D12_COMMAND_LIST_TYPE_DIRECT);
+
         
-        D12CommandListEntry cl = GetAssociatedCommandList(ae);
-        bool fcgeo = IsFenceComplete(fence,ae->fence_value);
-        ASSERT(fcgeo);
-        ae->allocator->Reset();
-        cl.list->Reset(ae->allocator, nullptr);
-        
-        //Render
-        cl.list->OMSetRenderTargets(1, &rtv_cpu_handle, FALSE, &dsv_cpu_handle);
-        
-        cl.list->SetPipelineState(pipeline_state);
-        cl.list->SetGraphicsRootSignature(root_sig);
-        
-        cl.list->RSSetViewports(1, &viewport);
-        cl.list->RSSetScissorRects(1, &sis_rect);
-        
-        // set the descriptor heap
-        ID3D12DescriptorHeap* descriptorHeaps[] = { draw_test->heap };
-        cl.list->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
-        
-        // set the descriptor table to the descriptor heap (parameter 1, as constant buffer root descriptor is parameter index 0)
-        cl.list->SetGraphicsRootDescriptorTable(1, draw_test->heap->GetGPUDescriptorHandleForHeapStart());
-        
-        f4x4 finalmat = f4x4::identity();
-        f4x4 m_mat = draw_test->ot.m;
-        f4x4 c_mat = draw_test->rc.matrix;
-        f4x4 p_mat = draw_test->rc.projection_matrix;
-        finalmat = mul(c_mat,m_mat);
-        finalmat = mul(p_mat,finalmat);
-        
-        cl.list->SetGraphicsRoot32BitConstants(0, 16, &finalmat, 0);
-        cl.list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        cl.list->IASetVertexBuffers(0, 1, &draw_test->v_buffer.buffer_view);
-        cl.list->DrawInstanced(6, 1, 0, 0);
-        
-        //End D12 Renderering
-        EndCommandListEncodingAndExecute(ae,cl);
-        ae->fence_value = D12RendererCode::Signal(command_queue, fence, fence_value);
-        
-        //wait for the gpu to execute up until this point before we procede this is the allocators..
-        //current fence value which we got when we signaled. 
-        //the fence value that we give to each allocator is based on the fence value for the queue.
-        D12RendererCode::WaitForFenceValue(fence, ae->fence_value, fence_event);
-        YoyoClearVector(&ae->used_list_indexes);
-#endif
         D12CommandAllocatorEntry* final_allocator_entry = D12RendererCode::GetFreeCommandAllocatorEntry(D3D12_COMMAND_LIST_TYPE_DIRECT);
         
         D12CommandListEntry final_command_list = GetAssociatedCommandList(final_allocator_entry);
@@ -2489,10 +2447,17 @@ namespace D12RendererCode
         bool final_fc = IsFenceComplete(fence,final_allocator_entry->fence_value);
         ASSERT(final_fc);
         final_allocator_entry->allocator->Reset();
+
         
         final_command_list.list->Reset(final_allocator_entry->allocator, nullptr);
         ID3D12Resource* cbb = D12RendererCode::GetCurrentBackBuffer();
-        
+        final_command_list.list->SetDescriptorHeaps(1,&imgui_heap);
+
+        final_command_list.list->OMSetRenderTargets(1, &rtv_cpu_handle, FALSE, &dsv_cpu_handle);        
+//        final_command_list.list->OMSetRenderTargets(1,&g_mainRenderTargetDescriptor[backBufferIdx], FALSE, NULL);
+        ImGui::Render();
+        ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), final_command_list.list);
+                
         //tranistion the render target back to present mode. preparing for presentation.
         TransitionResource(final_command_list,cbb,D3D12_RESOURCE_STATE_RENDER_TARGET,D3D12_RESOURCE_STATE_PRESENT);
         

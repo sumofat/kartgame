@@ -9,6 +9,16 @@ extern "C"{
 #include "fmj/src/fmj_types.h"
 }
 
+#include "../external/imgui/imgui.h"
+#include "../external/imgui/imgui_widgets.cpp"
+#include "../external/imgui/imgui.cpp"
+#include "../external/imgui/imgui_demo.cpp"
+#include "../external/imgui/imgui_draw.cpp"
+#include "../external/imgui/examples/imgui_impl_win32.h"
+#include "../external/imgui/examples/imgui_impl_win32.cpp"
+#include "../external/imgui/examples/imgui_impl_dx12.h"
+#include "../external/imgui/examples/imgui_impl_dx12.cpp"
+
 #include "directx12.h"
 #include "util.h"
 
@@ -41,20 +51,22 @@ struct FMJAssetContext
     FMJStretchBuffer scene_objects;        
 }typedef FMJAssetContext;
 
-
-
 #include "fmj_scene.h"
 #include "assets.h"
 
 #include "koma.h"
 #include "ping_game.h"
 
-
-
 #include "assets.cpp"
 
 #include "camera.h"
+#include "editor.h"
+//Game files
+#include "carframe.h"
+//End game files
+
 //BEGIN FMJSCENE TEST
+
 
 FMJSceneBuffer scenes;
 FMJStretchBuffer render_command_buffer;
@@ -224,6 +236,37 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         return 0;
     }
     ID3D12Device2* device = D12RendererCode::GetDevice();
+
+
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+
+    ImGui::StyleColorsDark();
+    //ImGui::StyleColorsClassic();
+
+    // Setup Platform/Renderer bindings
+    ImGui_ImplWin32_Init(ps->window.handle);
+    
+    
+#define NUM_FRAMES_IN_FLIGHT 2
+
+    ID3D12DescriptorHeap* g_pd3dSrvDescHeap = NULL;
+    {
+        D3D12_DESCRIPTOR_HEAP_DESC desc = {};
+        desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        desc.NumDescriptors = 1;
+        desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        if (device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&g_pd3dSrvDescHeap)) != S_OK)
+            return false;
+    }
+
+    ImGui_ImplDX12_Init(device, NUM_FRAMES_IN_FLIGHT,
+                        DXGI_FORMAT_R8G8B8A8_UNORM, g_pd3dSrvDescHeap,
+        g_pd3dSrvDescHeap->GetCPUDescriptorHandleForHeapStart(),
+        g_pd3dSrvDescHeap->GetGPUDescriptorHandleForHeapStart());
+
+
     
     //init tables
     fmj_asset_init(&asset_tables);
@@ -471,8 +514,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     u64 bkg_ui_id = fmj_stretch_buffer_push(&base_node.children,&bkg_child);    
 //end ui definition
     
-//game object setup pieces/komas
-
+//game object setup 
     quaternion def_r = f3_axis_angle(f3_create(0,0,1),0);
 
     f2  top_right_screen_xy = f2_create(ps->window.dim.x,ps->window.dim.y);
@@ -481,7 +523,6 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     f3 max_screen_p = f3_screen_to_world_point(rc.projection_matrix,rc.matrix,ps->window.dim,top_right_screen_xy,0);
     f3 lower_screen_p = f3_screen_to_world_point(rc.projection_matrix,rc.matrix,ps->window.dim,bottom_left_xy,0);
 
-    //test gltlf aquisition
     FMJAssetContext asset_ctx = {};
     asset_ctx.scene_objects = fmj_stretch_buffer_init(100,sizeof(FMJSceneObject),8);
     
@@ -514,23 +555,15 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 //    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/BoxTextured.glb",color_render_material_mesh.id);
     
     //FMJAssetModel test_model = test_model_result.model;
-
     //fmj_asset_upload_model(&asset_tables,&asset_ctx,&duck_model_result.model);
-    
-//    FMJSceneObject* test_so = fmj_stretch_buffer_check_out(FMJSceneObject,&test_scene->buffer.buffer,0);
+
     u64 track_instance_id = fmj_asset_create_model_instance(&asset_ctx,&track_model_result);
     u64 kart_instance_id = fmj_asset_create_model_instance(&asset_ctx,&kart_model_result);    
-//    u64 model_instance_2_id = fmj_asset_create_model_instance(&asset_ctx,&test_model_result);
-//    u64 duck_instance = fmj_asset_create_model_instance(&asset_ctx,&duck_model_result);
-//    u64 duck_instance2 = fmj_asset_create_model_instance(&asset_ctx,&duck_model_result);
-//    u64 duck_instance3 = fmj_asset_create_model_instance(&asset_ctx,&duck_model_result);
 
     FMJ3DTrans track_trans;
     fmj_3dtrans_init(&track_trans);
     track_trans.p = f3_create(0,0,0);
     track_trans.r = f3_axis_angle(f3_create(0,0,1),0);
-    
-//    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,track_instance_id,track_trans);
     
     FMJ3DTrans kart_trans;
     fmj_3dtrans_init(&kart_trans);
@@ -542,28 +575,11 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     fmj_3dtrans_init(&duck_trans);
     duck_trans.p = f3_create(-10,0,0);
 
-//    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,duck_instance,duck_trans);    
-//    AddModelToSceneObjectAsChild(&asset_ctx,model_instance_id,duck_instance,duck_trans);
-
-//    FMJ3DTrans duck_trans2;
     fmj_3dtrans_init(&duck_trans);
     duck_trans.p = f3_create(10,0,0);
-//    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,duck_instance,duck_trans);    
-//    AddModelToSceneObjectAsChild(&asset_ctx,model_instance_id,duck_instance2,duck_trans);
 
-//    FMJ3DTrans duck_trans3;
     fmj_3dtrans_init(&duck_trans);
     duck_trans.p = f3_create(0,8,0);
-//    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,duck_instance,duck_trans);    
-//    AddModelToSceneObjectAsChild(&asset_ctx,duck_instance,duck_instance3,duck_trans);
-    
-/*            
-    FMJ3DTrans new_trans_2;
-    fmj_3dtrans_init(&new_trans_2);
-    new_trans_2.p = f3_create(-10,0,0);
-//    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,model_instance_2_id,new_trans_2);
-    AddModelToSceneObjectAsChild(&asset_ctx,model_instance_id,model_instance_2_id,new_trans_2);
-*/
     
     FMJSceneObject* track_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,track_instance_id);
     FMJSceneObject* kart_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,kart_instance_id);
@@ -581,13 +597,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     }
     
     FMJAssetMesh track_mesh = fmj_stretch_buffer_get(FMJAssetMesh,&asset_ctx.asset_tables->meshes,mesh_id);
-//    FMJAssetMesh kart_mesh = fmj_stretch_buffer_get(FMJAssetMesh,&asset_ctx.asset_tables->meshes,kart_mesh_id);
     FMJAssetMesh track_collision_mesh = track_mesh;
-//    FMJAssetMesh kart_collision_mesh = kart_mesh;    
-    
     PhysicsShapeMesh track_physics_mesh = CreatePhysicsMeshShape(&track_mesh,physics_material);
-//    PhysicsShapeMesh kart_physics_mesh  = CreatePhysicsMeshShape(&kart_mesh,physics_material);
-
 
 	track_collision_mesh.vertex_data   = (f32*)track_physics_mesh.tri_mesh->getVertices();
 	track_collision_mesh.vertex_count  = track_physics_mesh.tri_mesh->getNbVertices() * 3;
@@ -611,53 +622,18 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     u64 tcm_id = fmj_stretch_buffer_push(&asset_ctx.asset_tables->meshes,&track_collision_mesh);
     fmj_asset_upload_meshes(&asset_ctx,f2_create(tcm_id,tcm_id));
 
-    FMJSceneObject track_physics_so_ = {};//*track_so;
+    FMJSceneObject track_physics_so_ = {};
     track_physics_so_.transform = kart_trans;
     track_physics_so_.children.buffer = fmj_stretch_buffer_init(1,sizeof(u64),8);
     track_physics_so_.m_id = track_so->m_id;
-    track_physics_so_.data = 0;//track_so.data;    
+    track_physics_so_.data = 0;
     track_physics_so_.type = 1;
     track_physics_so_.primitives_range = f2_create_f(tcm_id);
     
     u64 track_physics_id = fmj_stretch_buffer_push(&asset_ctx.scene_objects,&track_physics_so_);
-#if 0
-    mesh_flags = kart_physics_mesh.tri_mesh->getTriangleMeshFlags();
-    if(mesh_flags & PxTriangleMeshFlag::Enum::e16_BIT_INDICES)
-    {
-        kart_collision_mesh.index_16_data = (u16*)kart_physics_mesh.tri_mesh->getTriangles();
-        kart_collision_mesh.index16_count = kart_physics_mesh.tri_mesh->getNbTriangles() * 3;
-        kart_collision_mesh.index_16_data_size = kart_collision_mesh.index16_count * sizeof(u16);
-        kart_collision_mesh.index_component_size = fmj_asset_index_component_size_16;
-    }
-    else
-    {
-        kart_collision_mesh.index_component_size = fmj_asset_index_component_size_32;
-        kart_collision_mesh.index_32_data = (u32*)kart_physics_mesh.tri_mesh->getTriangles();
-        kart_collision_mesh.index32_count = kart_physics_mesh.tri_mesh->getNbTriangles() * 3;
-        kart_collision_mesh.index_32_data_size = kart_collision_mesh.index32_count * sizeof(u32);                
-    }
 
-	kart_collision_mesh.vertex_data   = (f32*)kart_physics_mesh.tri_mesh->getVertices();
-	kart_collision_mesh.vertex_count  = kart_physics_mesh.tri_mesh->getNbVertices() * 3;
-
-    u64 kcm_id = fmj_stretch_buffer_push(&asset_ctx.asset_tables->meshes,&kart_collision_mesh);
-    fmj_asset_upload_meshes(&asset_ctx,f2_create(kcm_id,kcm_id));
-
-    FMJSceneObject kart_physics_so_ = {};
-    kart_physics_so_.transform = kart_trans;
-    kart_physics_so_.children.buffer = fmj_stretch_buffer_init(1,sizeof(u64),8);
-    kart_physics_so_.m_id = kart_so->m_id;
-    kart_physics_so_.data = 0;
-    kart_physics_so_.type = 1;
-    kart_physics_so_.primitives_range = f2_create_f(kcm_id);
-
-    u64 kart_physics_id = fmj_stretch_buffer_push(&asset_ctx.scene_objects,&kart_physics_so_);
-#endif
     
     AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,track_physics_id,track_physics_so_.transform);
-    //AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,kart_physics_id,kart_physics_so_.transform);
-    
-//    FMJSceneObject* kart_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,kart_instance_id);
 
     PhysicsShapeBox phyx_box_shape = PhysicsCode::CreateBox(f3_create(1.2f,0.2f,1.2f),physics_material);
         
@@ -667,33 +643,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     PhysicsCode::AddActorToScene(scene, track_rbd);    
     PhysicsCode::AddActorToScene(scene, kart_rbd);
 
-//    PhysicsCode::UpdateRigidBodyMassAndInertia(track_rbd,1);
-//    PhysicsCode::SetMass(track_rbd,1);
-//    PhysicsCode::DisableGravity((PxActor*)track_rbd.state,true);
-    
-//    k.rigid_body = rbd;
     PhysicsCode::UpdateRigidBodyMassAndInertia(kart_rbd,1);
     PhysicsCode::SetMass(kart_rbd,1);
-    
-    //FMJSceneObject* duck_child_3 = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,duck_instance3);
-    
-//    FMJSceneObject* track_so_2 = fmj_stretch_buffer_check_out(FMJSceneObject,&root_node->children.buffer,test_child_so_id_2);
-
-//    fmj_stretch_buffer_check_in(&test_scene->buffer.buffer);
-//    new_trans.p = f3_create(-10,-10,-25);
-//    u64 test_child_so_id_2 = AddModelToSceneObjectAsChild(&asset_ctx,root_node,&model_instance_2,new_trans);
-
-    
-//    fmj_stretch_buffer_check_in(&test_scene->buffer.buffer);
-
-    
-//    test_mesh_t.p = f3_create(0,0,-5);
-//    test_mesh_t.s = f3_create_f(0.01f);
-//    test_mesh_t.r = f3_axis_angle(f3_create(0,0,1),0);
-//    fmj_3dtrans_update(&test_mesh_t);    
-//    SetWorldP(test_so,f3_create(0,-10,-25));
-//    test_model_result.scene_object->transform.local_p = f3_create(0,-10,-25);
-//    track_so->transform.local_p = f3_create(10,0,0);
     
 //end game object setup
 
@@ -723,6 +674,20 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 //end up load data to gpu
 
     //game global vars
+    CarFrameDescriptorBuffer car_descriptor_buffer;
+    CarFrameDescriptor d = {};
+    d.mass = 400;
+    d.max_thrust = 2000;
+    d.maximum_wheel_angle = 33;//degrees
+    d.count = 1;
+//    d.type = CarFrameType.test;
+//    d.prefab = test_car_prefab;
+    car_descriptor_buffer.descriptors = fmj_stretch_buffer_init(1,sizeof(CarFrameDescriptor),8);
+    fmj_stretch_buffer_push(&car_descriptor_buffer.descriptors,&d);
+    
+    CarFrameBuffer car_frame_buffer = {};
+//    kart_init_car_frames(&car_frame_buffer,car_descriptor_buffer,1);
+    
     u32 tex_index = 0;
     f32 angle = 0;    
 
@@ -732,8 +697,16 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     u32 tex_id;
     f32 size_sin = 0;
     game_state.current_player_id = 0;
+
+    bool show_demo_window = true;
+    bool show_kart_editor = true;
+    FMJEditorConsole console;
+    fmj_editor_console_init(&console);
+    
+    ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
     //end game global  vars
 
+    
     //game loop
     while(ps->is_running)
     {
@@ -743,7 +716,47 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         PullGamePads(ps);
         PullTimeState(ps);
 //End pull
-        
+        //EDITOR / IMGUI
+ // Start the Dear ImGui frame
+        ImGui_ImplDX12_NewFrame();
+        ImGui_ImplWin32_NewFrame();
+        ImGui::NewFrame();
+
+         // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
+        if (show_demo_window)
+        {
+            ImGui::ShowDemoWindow(&show_demo_window);            
+        }
+
+
+        if(show_kart_editor)
+        {
+            if (ImGui::BeginMainMenuBar())
+            {
+                if (ImGui::BeginMenu("Windows"))
+                {
+
+                    if (ImGui::MenuItem("SceneObjects"))
+                    {
+                        fmj_editor_console_add_entry(&console,"Start showing scene objects window");
+                    }
+
+                    if(ImGui::MenuItem("Log"))
+                    {
+                        console.is_showing = true;
+
+                    }                    
+                    ImGui::EndMenu();                
+                }
+                ImGui::EndMainMenuBar();            
+            }
+        }
+
+        if(console.is_showing)
+        {
+            fmj_editor_console_show(&console);
+        }
+        //END EDITOR IMGUI
 //Game Code 
         if(ps->input.keyboard.keys[keys.s].down)
         {
@@ -755,6 +768,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         {
             show_title = false;
             fmj_ui_evaluate_on_node_recursively(&base_node,SetSpriteNonVisible);
+
+            fmj_editor_console_add_entry(&console,"mouse_p x: %f y: %f ",ps->input.mouse.p.x,ps->input.mouse.p.y);                                    
         }
 
 //        test_model_result.scene_object.transform.local_p = f3_create(0,-10,-25);
@@ -807,7 +822,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         fmj_stretch_buffer_check_in(&asset_ctx.asset_tables->matrix_buffer);
 //end render camera modify
 
-        SoundCode::ContinousPlay(&bgm_soundclip);
+//        SoundCode::ContinousPlay(&bgm_soundclip);
 //Render camera stated etc..  is finalized        
 
         fmj_camera_orbit(&asset_ctx,&rc,ps->input,ps->time.delta_seconds,kart_physics_so->transform,2);
@@ -938,7 +953,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
  
 //        DrawTest test = {cube,rc,gpu_arena,test_desc_heap};
 //Post frame work is done.
-        D12RendererCode::EndFrame();
+        D12RendererCode::EndFrame(g_pd3dSrvDescHeap);
 
         fmj_stretch_buffer_clear(&render_command_buffer);
 //END Render commands issued to the render api        
