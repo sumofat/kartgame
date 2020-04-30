@@ -702,11 +702,11 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     bool show_kart_editor = true;
     FMJEditorConsole console;
     fmj_editor_console_init(&console);
-    
+    console.is_showing = true;    
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+    f32 tset_num = 0.005f;
     //end game global  vars
 
-    
     //game loop
     while(ps->is_running)
     {
@@ -744,7 +744,6 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                     if(ImGui::MenuItem("Log"))
                     {
                         console.is_showing = true;
-
                     }                    
                     ImGui::EndMenu();                
                 }
@@ -768,8 +767,6 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         {
             show_title = false;
             fmj_ui_evaluate_on_node_recursively(&base_node,SetSpriteNonVisible);
-
-            fmj_editor_console_add_entry(&console,"mouse_p x: %f y: %f ",ps->input.mouse.p.x,ps->input.mouse.p.y);                                    
         }
 
 //        test_model_result.scene_object.transform.local_p = f3_create(0,-10,-25);
