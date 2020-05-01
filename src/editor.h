@@ -62,6 +62,13 @@ void fmj_editor_update_cp_and_handle(f2* handle_p_out,f2* cp_out,f32 handle_size
     *cp_out = new_p;    
 }
 
+f2 fmj_editor_apply_scale_f2(f2 p,f2 point,f2 scale_factors,f2 dim)
+{
+    f32 scaled_x = p.x + (point.x * scale_factors.x);
+    f32 scaled_y = ((dim.y - point.y) - ((dim.y - point.y) * scale_factors.y)) + (p.y + point.y);
+    return f2_create(scaled_x,scaled_y);
+}
+
 void fmj_editor_console_init(FMJEditorConsole* console)
 {
     ASSERT(console);
@@ -194,6 +201,10 @@ void fmj_editor_console_show(FMJEditorConsole* console)
      f32 increment = max_scale_factor / (f32)lines_count;
      f32 increment_x = max_scale_factor_x / (f32)lines_count;     
      f32 next_text_num = 0;
+
+     f32 sf_inv_x = 1.0f/max_scale_factor_x;
+     f32 sf_inv_y = 1.0f/max_scale_factor;
+     
      for(int x =0;x < lines_count;++x)
      {
          draw_list->AddLine(ImVec2(p.x + (offset * x) + grid_top_left.x,p.y + grid_top_left.y), ImVec2(p.x + (offset * x) + grid_top_left.x,p.y + height + grid_top_left.y), grey_col,1.0f);
@@ -325,7 +336,8 @@ void fmj_editor_console_show(FMJEditorConsole* console)
                                  test_p = curve->handle_a;
                              if(i == 2)
                                  test_p = curve->handle_b;
-                             
+
+
                              f32 distance = abs(f2_length(f2_sub(test_p,mp)));
                              if(distance < 5)
                              {
@@ -346,11 +358,18 @@ void fmj_editor_console_show(FMJEditorConsole* console)
                          }
                          else
                          {
+
+                             f2 non_scaled_test_p = test_p;
+                             test_p = fmj_editor_apply_scale_f2(f2_create_f(0),test_p,f2_create(sf_inv_x,sf_inv_y),f2_create_f(max));
+
+                             f2 scaled_mp = fmj_editor_apply_scale_f2(f2_create_f(0),mp,f2_create(sf_inv_x,sf_inv_y),f2_create_f(max));
+                             
                              f32 distance = abs(f2_length(f2_sub(test_p,mp)));
                              if(distance < 5)
                              {
                                  console->selected_points_index = i;
-                                 f2 new_p = f2_create(mp.x,mp.y);
+                                 f2 diff_v2 = f2_sub(mp,test_p);
+                                 f2 new_p = f2_add(non_scaled_test_p,diff_v2);
                                  f2 move_diff = f2_sub(new_p,curve->points[i]);
                                  if(i == 0)
                                  {
@@ -361,7 +380,7 @@ void fmj_editor_console_show(FMJEditorConsole* console)
                                      curve->handle_b = f2_add(move_diff,curve->handle_b);                                     
                                  }
                                  
-                                 curve->points[i] = new_p;//f2_add(move_diff,curve->points[i]);//new_p;
+                                 curve->points[i] = new_p;
                                  fmj_editor_console_add_entry(console,"found point at x:%f y:%f ",new_p.x,new_p.y);
                                  break;
                              }                             
@@ -392,20 +411,31 @@ void fmj_editor_console_show(FMJEditorConsole* console)
              f2 c1 = curve.points[1];
              f2 c2 = curve.points[2];
              f32 b = 1.0f/max_scale_factor_x;
-             f32 s = p1.x * max_scale_factor_x;
+             f32 c = 1.0f/max_scale_factor;
+
+             f32 d = ((max - p1.y) - ((max - p1.y) * c));
+             f32 e = ((max - p2.y) - ((max - p2.y) * c));
+
+             f32 h1ys = ((max - curve.handle_a.y) - ((max - curve.handle_a.y) * c));
+             f32 h2ys = ((max - curve.handle_b.y) - ((max - curve.handle_b.y) * c));
+
+             f32 c1ys = ((max - c1.y) - ((max - c1.y) * c));
+             f32 c2ys = ((max - c2.y) - ((max - c2.y) * c));
+             
+             f32 s = p1.x * b;
              f32 sf = max_scale_factor_x;
              f32 ss = p.x + s;             
-//             draw_list->AddNgonFilled(ImVec2((p.x + p1.x) * s,p.y + p1.y),4.0f, col, 10);
-             draw_list->AddNgonFilled(ImVec2(ss,p.y + p1.y),4.0f, col, 10);             
-             draw_list->AddNgonFilled(ImVec2((p.x + p2.x) * sf,p.y + p2.y),4.0f, col, 10);
 
-             draw_list->AddNgonFilled(ImVec2((p.x + curve.handle_a.x),p.y + curve.handle_a.y),8.0f, col, 4);
-             draw_list->AddNgonFilled(ImVec2((p.x + curve.handle_b.x),p.y + curve.handle_b.y),8.0f, col, 4);
+             draw_list->AddNgonFilled(ImVec2(ss,p.y + (p1.y + d)),4.0f, col, 10);             
+             draw_list->AddNgonFilled(ImVec2((p.x + (p2.x * b)),p.y + (p2.y + e)),4.0f, col, 10);
 
-             draw_list->AddLine(ImVec2((p.x + p1.x),p.y + p1.y), ImVec2(p.x + (curve.handle_a.x)/ max_scale_factor_x,p.y + curve.handle_a.y), col,1.0f);
-             draw_list->AddLine(ImVec2((p.x + p2.x),p.y + p2.y), ImVec2(p.x + curve.handle_b.x / max_scale_factor_x,p.y + curve.handle_b.y)  , col,1.0f);
+             draw_list->AddNgonFilled(ImVec2((p.x + (curve.handle_a.x * b)),p.y + (curve.handle_a.y + h1ys)),8.0f, col, 4);
+             draw_list->AddNgonFilled(ImVec2((p.x + (curve.handle_b.x * b)),p.y + (curve.handle_b.y + h2ys)),8.0f, col, 4);
+
+             draw_list->AddLine(ImVec2((p.x + (p1.x * b)),p.y + (p1.y + d)), ImVec2(p.x + (curve.handle_a.x * b),p.y + curve.handle_a.y + h1ys), col,1.0f);
+             draw_list->AddLine(ImVec2((p.x + (p2.x * b)),p.y + (p2.y + e)), ImVec2(p.x + (curve.handle_b.x * b),p.y + curve.handle_b.y + h2ys), col,1.0f);
          
-             draw_list->AddBezierCurve(ImVec2((p.x + p1.x),p.y + p1.y), ImVec2((p.x + c1.x),p.y + c1.y), ImVec2((p.x + c2.x),p.y + c2.y), ImVec2((p.x + p2.x),p.y + p2.y), col, 3,20);
+             draw_list->AddBezierCurve(ImVec2((p.x + (p1.x * b)),p.y + p1.y + d), ImVec2((p.x + (c1.x*b)),p.y + c1.y + c1ys), ImVec2((p.x + (c2.x*b)),p.y + c2.y + c2ys), ImVec2((p.x + (p2.x*b)),p.y + p2.y + e), col, 3,20);
          }
      }
      
@@ -414,8 +444,8 @@ void fmj_editor_console_show(FMJEditorConsole* console)
 
      f2 extra_size = f2_create_f(100);
      ImGui::InvisibleButton("spacing",ImVec2(extra_size.x,extra_size.y));
-     ImGui::SliderFloat("scale_y",&max_scale_factor,1.0f,10000.0f);
-     ImGui::SliderFloat("scale_x",&max_scale_factor_x,1.0f,3.0f);          
+     ImGui::SliderFloat("scale_y",&max_scale_factor,1.0f,100.0f);
+     ImGui::SliderFloat("scale_x",&max_scale_factor_x,1.0f,100.0f);          
      ImGui::SliderFloat("test_x",&console->test_x,0,max_scale_factor_x);     
 //     ImGui::SliderFloat2("test_v",t, float v_min, float v_max, const char* format = "%.3f", float power = 1.0f);     
      if(ImGui::Button("Save"))
