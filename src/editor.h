@@ -317,6 +317,59 @@ void fmj_editor_move_point_at_mp(FMJEditorConsole* console,f2 mp,f2 scale_factor
     }                                      
 }
 
+void fmj_editor_draw_curves(FMJEditorConsole* console,f2 grid_dim,f2 p)
+{
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();        
+    static ImVec4 colf = ImVec4(1.0f, 1.0f, 0.4f, 1.0f);    
+    const ImU32 col = ImColor(colf);    
+    if(console->points.fixed.count == 0 && console->point_in_progress)
+    {
+        f2 p1 = console->unfinished_point.points[0];
+        draw_list->AddNgonFilled(ImVec2(p.x + p1.x,p.y + p1.y),4.0f, col, 10);         
+    }
+    else
+    {
+        for(int i = 0;i < console->points.fixed.count;++i)
+        { 
+            FMJBezierCubicCurve curve = fmj_stretch_buffer_get(FMJBezierCubicCurve,&console->points,i);
+            f2 p1 = curve.points[0];
+            f2 p2 = curve.points[3];
+            f2 c1 = curve.points[1];
+            f2 c2 = curve.points[2];
+            f32 b = 1.0f/max_scale_factor_x;
+            f32 c = 1.0f/max_scale_factor;
+
+            f32 max = grid_dim.y;
+             
+            f32 d = ((max - p1.y) - ((max - p1.y) * c));
+            f32 e = ((max - p2.y) - ((max - p2.y) * c));
+
+            f32 h1ys = ((max - curve.handle_a.y) - ((max - curve.handle_a.y) * c));
+            f32 h2ys = ((max - curve.handle_b.y) - ((max - curve.handle_b.y) * c));
+
+            f32 c1ys = ((max - c1.y) - ((max - c1.y) * c));
+            f32 c2ys = ((max - c2.y) - ((max - c2.y) * c));
+             
+            f32 s = p1.x * b;
+            f32 sf = max_scale_factor_x;
+            f32 ss = p.x + s;             
+
+            draw_list->AddNgonFilled(ImVec2(ss,p.y + (p1.y + d)),4.0f, col, 10);             
+            draw_list->AddNgonFilled(ImVec2((p.x + (p2.x * b)),p.y + (p2.y + e)),4.0f, col, 10);
+
+            draw_list->AddNgonFilled(ImVec2((p.x + (curve.handle_a.x * b)),p.y + (curve.handle_a.y + h1ys)),8.0f, col, 4);
+            draw_list->AddNgonFilled(ImVec2((p.x + (curve.handle_b.x * b)),p.y + (curve.handle_b.y + h2ys)),8.0f, col, 4);
+
+            draw_list->AddLine(ImVec2((p.x + (p1.x * b)),p.y + (p1.y + d)), ImVec2(p.x + (curve.handle_a.x * b),p.y + curve.handle_a.y + h1ys), col,1.0f);
+            draw_list->AddLine(ImVec2((p.x + (p2.x * b)),p.y + (p2.y + e)), ImVec2(p.x + (curve.handle_b.x * b),p.y + curve.handle_b.y + h2ys), col,1.0f);
+         
+            draw_list->AddBezierCurve(ImVec2((p.x + (p1.x * b)),p.y + p1.y + d), ImVec2((p.x + (c1.x*b)),p.y + c1.y + c1ys), ImVec2((p.x + (c2.x*b)),p.y + c2.y + c2ys), ImVec2((p.x + (p2.x*b)),p.y + p2.y + e), col, 3,20);
+        }
+    }
+     
+    draw_list->AddNgonFilled(ImVec2(p.x + console->last_result.x,p.y + console->last_result.y),8.0f, col, 4);    
+}
+
 void fmj_editor_console_show(FMJEditorConsole* console)
 {
     ImGui::SetNextWindowSize(ImVec2(520,600), ImGuiCond_FirstUseEver);
@@ -378,80 +431,38 @@ void fmj_editor_console_show(FMJEditorConsole* console)
     f32 sf_inv_y = 1.0f/max_scale_factor;
     
     f2 scale_factor_inverted = f2_create(1.0f/scale_factor.x,1.0f/scale_factor.y);
+    
     fmj_editor_draw_grid(console,grid_dim);
+    
 
-//click to add points
-     p = ImGui::GetCursorScreenPos();     
-     ImGui::InvisibleButton("canvas", canvas_size);
-     ImVec2 mouse_pos_in_canvas = ImVec2(ImGui::GetIO().MousePos.x - p.x, ImGui::GetIO().MousePos.y - p.y);
-     f2 mp = f2_create(mouse_pos_in_canvas.x,mouse_pos_in_canvas.y);
+//move points from user input
+    p = ImGui::GetCursorScreenPos();    
+    ImGui::InvisibleButton("canvas", canvas_size);
+    ImVec2 mouse_pos_in_canvas = ImVec2(ImGui::GetIO().MousePos.x - p.x, ImGui::GetIO().MousePos.y - p.y);
+    f2 mp = f2_create(mouse_pos_in_canvas.x,mouse_pos_in_canvas.y);
      
-     if (ImGui::IsItemHovered())
-     {
-         fmj_editor_check_add_points(console,mp,grid_dim);
+    if (ImGui::IsItemHovered())
+    {
+        fmj_editor_check_add_points(console,mp,grid_dim);
          
-         if(ImGui::IsMouseDown(0))
-         {
-             if(console->point_in_progress)
-             {
-                 fmj_editor_move_unfinished_point(console,mp);
-             }
-             else
-             {
-                 fmj_editor_move_point_at_mp(console,mp,scale_factor_inverted,grid_dim);
-             }
-         }//end check if down
-         
-     }
+        if(ImGui::IsMouseDown(0))
+        {
+            if(console->point_in_progress)
+            {
+                fmj_editor_move_unfinished_point(console,mp);
+            }
+            else
+            {
+                fmj_editor_move_point_at_mp(console,mp,scale_factor_inverted,grid_dim);
+            }
+        }//end check if down
+    }
 
-     if(console->points.fixed.count == 0 && console->point_in_progress)
-     {
-         f2 p1 = console->unfinished_point.points[0];
-         draw_list->AddNgonFilled(ImVec2(p.x + p1.x,p.y + p1.y),4.0f, col, 10);         
-     }
-     else
-     {
-         for(int i = 0;i < console->points.fixed.count;++i)
-         { 
-             FMJBezierCubicCurve curve = fmj_stretch_buffer_get(FMJBezierCubicCurve,&console->points,i);
-             f2 p1 = curve.points[0];
-             f2 p2 = curve.points[3];
-             f2 c1 = curve.points[1];
-             f2 c2 = curve.points[2];
-             f32 b = 1.0f/max_scale_factor_x;
-             f32 c = 1.0f/max_scale_factor;
+    fmj_editor_draw_curves(console,grid_dim,f2_create(p.x,p.y));
 
-             f32 max = grid_dim.y;
-             
-             f32 d = ((max - p1.y) - ((max - p1.y) * c));
-             f32 e = ((max - p2.y) - ((max - p2.y) * c));
+//Test bed 
 
-             f32 h1ys = ((max - curve.handle_a.y) - ((max - curve.handle_a.y) * c));
-             f32 h2ys = ((max - curve.handle_b.y) - ((max - curve.handle_b.y) * c));
-
-             f32 c1ys = ((max - c1.y) - ((max - c1.y) * c));
-             f32 c2ys = ((max - c2.y) - ((max - c2.y) * c));
-             
-             f32 s = p1.x * b;
-             f32 sf = max_scale_factor_x;
-             f32 ss = p.x + s;             
-
-             draw_list->AddNgonFilled(ImVec2(ss,p.y + (p1.y + d)),4.0f, col, 10);             
-             draw_list->AddNgonFilled(ImVec2((p.x + (p2.x * b)),p.y + (p2.y + e)),4.0f, col, 10);
-
-             draw_list->AddNgonFilled(ImVec2((p.x + (curve.handle_a.x * b)),p.y + (curve.handle_a.y + h1ys)),8.0f, col, 4);
-             draw_list->AddNgonFilled(ImVec2((p.x + (curve.handle_b.x * b)),p.y + (curve.handle_b.y + h2ys)),8.0f, col, 4);
-
-             draw_list->AddLine(ImVec2((p.x + (p1.x * b)),p.y + (p1.y + d)), ImVec2(p.x + (curve.handle_a.x * b),p.y + curve.handle_a.y + h1ys), col,1.0f);
-             draw_list->AddLine(ImVec2((p.x + (p2.x * b)),p.y + (p2.y + e)), ImVec2(p.x + (curve.handle_b.x * b),p.y + curve.handle_b.y + h2ys), col,1.0f);
-         
-             draw_list->AddBezierCurve(ImVec2((p.x + (p1.x * b)),p.y + p1.y + d), ImVec2((p.x + (c1.x*b)),p.y + c1.y + c1ys), ImVec2((p.x + (c2.x*b)),p.y + c2.y + c2ys), ImVec2((p.x + (p2.x*b)),p.y + p2.y + e), col, 3,20);
-         }
-     }
      
-     draw_list->AddNgonFilled(ImVec2(p.x + console->last_result.x,p.y + console->last_result.y),8.0f, col, 4);
-//extra spacing
-
      f2 extra_size = f2_create_f(100);
      ImGui::InvisibleButton("spacing",ImVec2(extra_size.x,extra_size.y));
      ImGui::SliderFloat("scale_y",&max_scale_factor,1.0f,100.0f);
