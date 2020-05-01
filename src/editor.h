@@ -44,13 +44,13 @@ float bezier_tangent(float t, f32 a, f32 b, f32 c, f32 d)
     return ( ( 3.0 * C1 * t* t ) + ( 2.0 * C2 * t ) + C3 );
 }
 
-void fmj_editor_update_cp_and_handle(f2* handle_p_out,f2* cp_out,f32 handle_size,f2 mp,f2 p1,f2 p3,bool is_move_handle)
+void fmj_editor_update_cp_and_handle(f2* handle_p_out,f2* cp_out,f2 handle_size,f2 mp,f2 p1,f2 p3,bool is_move_handle)
 {
     f32 length = f2_distance(p3,p1);
     length = length * 0.333f;                                     
     if(is_move_handle)
     {
-        f2 new_dir = f2_mul_s(f2_normalize(f2_sub(mp,p1)),handle_size);
+        f2 new_dir = f2_mul(f2_normalize(f2_sub(mp,p1)),handle_size);
         *handle_p_out = f2_add(p1,new_dir);
     }
 
@@ -107,27 +107,214 @@ void fmj_editor_console_add_entry(FMJEditorConsole* console,const char* fmt, ...
     char* a = &buf[0];
     fmj_editor_console_add_entry_(console,a);    
 }
- 
-f32 mix(f32 a, f32 b, f32 t)
+
+ImVec2 canvas_size;// = ImVec2(max,max);
+void fmj_editor_draw_grid(FMJEditorConsole* console,f2 dim)
 {
-    // degree 1
-    return a * (1.0f - t) + b*t;
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+    static ImVec4 colf = ImVec4(1.0f, 1.0f, 0.4f, 1.0f);
+    const ImU32 col = ImColor(colf);
+    static ImVec4 grey = ImVec4(0.8f, 0.8f, 0.8f, 0.5f);
+    const ImU32 grey_col = ImColor(grey);
+
+    int lines_count = 20;
+    int width = dim.x;
+    int height = dim.y;
+
+    int offset = width / lines_count;
+    f2 grid_top_left = f2_create(50,0);
+    f2 final_start_grid_pos = f2_create_f(0);
+
+    f32 increment = max_scale_factor / (f32)lines_count;
+    f32 increment_x = max_scale_factor_x / (f32)lines_count;     
+    f32 next_text_num = 0;
+     
+    for(int x =0;x < lines_count;++x)
+    {
+        draw_list->AddLine(ImVec2(p.x + (offset * x) + grid_top_left.x,p.y + grid_top_left.y), ImVec2(p.x + (offset * x) + grid_top_left.x,p.y + height + grid_top_left.y), grey_col,1.0f);
+        if(x == 0)
+        {
+            final_start_grid_pos.x = p.x + (offset * x) + grid_top_left.x;
+        }
+        if(x % 2 == 0)
+        {
+            FMJString out_string = fmj_string_create_formatted("%.2f",&console->scratch_mem,&console->scratch_mem,next_text_num);
+            f2 bottom = f2_create(p.x + (offset * x),p.y + height);
+            draw_list->AddText(ImVec2(bottom.x + grid_top_left.x,bottom.y + grid_top_left.y), col, out_string.string);                      
+        }
+        next_text_num += increment_x;         
+    }
+
+    next_text_num = max_scale_factor;     
+
+    //horizontal lines
+    for(int y = 0;y < lines_count;++y)
+    {
+        draw_list->AddLine(ImVec2(p.x + grid_top_left.x,p.y + (offset * y) + grid_top_left.y), ImVec2(p.x + width + grid_top_left.x,p.y + (offset * y) + grid_top_left.y), grey_col,2.0f);
+        if(y == 0)
+        {
+            final_start_grid_pos.y = p.y + (offset * y) + grid_top_left.y;
+        }
+        if(y % 2 == 0)
+        {
+            FMJString out_string = fmj_string_create_formatted("%.2f",&console->scratch_mem,&console->scratch_mem,next_text_num);             
+            f2 left = f2_create(p.x,p.y + (offset * y));         
+            draw_list->AddText(ImVec2(left.x - 40 + grid_top_left.x,left.y + grid_top_left.y), col, out_string.string);                  
+        }
+        next_text_num -= increment;         
+    }
+
+    ImGui::SetCursorScreenPos(ImVec2(final_start_grid_pos.x,final_start_grid_pos.y));
 }
- 
-f32 BezierQuadratic(f32 A, f32 B, f32 C, f32 t)
+
+void fmj_editor_add_end_point_at_mp(FMJEditorConsole* console,f2 mp,f2 grid_dim)
 {
-    // degree 2
-    f32 AB = mix(A, B, t);
-    f32 BC = mix(B, C, t);
-    return mix(AB, BC, t);
+    f2 point = f2_create(mp.x,mp.y);
+    console->unfinished_point.points[3] = point;
+                 
+    fmj_editor_update_cp_and_handle(&console->unfinished_point.handle_a,&console->unfinished_point.points[1],f2_create_f(50),console->unfinished_point.points[3],console->unfinished_point.points[0],console->unfinished_point.points[3],true);
+    fmj_editor_update_cp_and_handle(&console->unfinished_point.handle_b,&console->unfinished_point.points[2],f2_create_f(50),console->unfinished_point.points[0],console->unfinished_point.points[3],console->unfinished_point.points[0],true);
+
+    console->unfinished_point.min_max_range = f2_create(0,grid_dim.y);
+                 
+    fmj_stretch_buffer_push(&console->points,&console->unfinished_point);
+
+    console->unfinished_point.points[0] = f2_create_f(0);
+    console->unfinished_point.points[1] = f2_create_f(0);
+    console->unfinished_point.points[2] = f2_create_f(0);
+    console->unfinished_point.points[3] = f2_create_f(0);    
 }
- 
-f32 BezierCubic(f32 A, f32 B, f32 C, f32 D, f32 t)
+
+void fmj_editor_add_point_at_mp(FMJEditorConsole* console,f2 mp,f2 grid_dim)
 {
-    // degree 3
-    f32 ABC = BezierQuadratic(A, B, C, t);
-    f32 BCD = BezierQuadratic(B, C, D, t);
-    return mix(ABC, BCD, t);
+    FMJBezierCubicCurve prev_curve = fmj_stretch_buffer_get(FMJBezierCubicCurve,&console->points,console->points.fixed.count - 1);
+    console->unfinished_point.points[0] = prev_curve.points[3];
+    fmj_editor_add_end_point_at_mp(console,mp,grid_dim);
+}
+
+void fmj_editor_check_add_points(FMJEditorConsole* console,f2 mp,f2 grid_dim)
+{
+    if(ImGui::IsMouseDoubleClicked(0))
+    {
+        if(console->points.fixed.count == 0 && console->point_in_progress == false)//special case for first point added
+        {
+            f2 point = console->unfinished_point.points[0] = mp;
+            console->point_in_progress = true;             
+            fmj_editor_console_add_entry(console,"added start point at x:%f y:%f ",point.x,point.y);                              
+        }
+        else if(console->point_in_progress == true)
+        {
+            fmj_editor_add_end_point_at_mp(console,mp,grid_dim);
+            console->point_in_progress = false;
+        }
+        else if(console->points.fixed.count > 0 && console->point_in_progress == false)
+        {
+//add new curve after first curve is full complete
+            ASSERT(console->points.fixed.count > 0);
+            fmj_editor_add_point_at_mp(console,mp,grid_dim);
+            console->point_in_progress = false;
+        }
+    }
+    else
+    {
+        console->selected_points_index = -1;             
+    }
+}    
+
+void fmj_editor_move_unfinished_point(FMJEditorConsole* console,f2 mp)
+{
+    f2 test_p = console->unfinished_point.points[0];
+    f32 distance = abs(f2_length(f2_sub(test_p,mp)));
+    if(distance < 5)
+    {
+        f2 new_p = f2_create(mp.x,mp.y);                     
+        console->unfinished_point.points[0] = new_p;
+        fmj_editor_console_add_entry(console,"found point at x:%f y:%f ",new_p.x,new_p.y);
+    }                 
+}
+
+void fmj_editor_move_point_at_mp(FMJEditorConsole* console,f2 mp,f2 scale_factor_inverted,f2 grid_dim)
+{
+    f2 sf_inv = scale_factor_inverted;
+    
+    for(int i = 0;i < console->points.fixed.count;++i)
+    {
+        FMJBezierCubicCurve* curve = fmj_stretch_buffer_check_out(FMJBezierCubicCurve,&console->points,i);
+        f2 p1 = curve->points[0];
+        f2 p2 = curve->points[3];
+        f2 c1 = curve->points[1];
+        f2 c2 = curve->points[2];
+
+        f2 handle_scale = f2_mul(f2_create_f(50),f2_create(max_scale_factor_x,max_scale_factor));
+                     
+        for(int i = 0;i < 4;++i)
+        {
+            f2 test_p = curve->points[i];
+            if(i == 1 || i == 2)//control points
+            {
+                if(i == 1)
+                    test_p = curve->handle_a;
+                if(i == 2)
+                    test_p = curve->handle_b;
+
+                f2 non_scaled_test_p = test_p;
+                test_p = fmj_editor_apply_scale_f2(f2_create_f(0),test_p,scale_factor_inverted,f2_create_f(grid_dim.y));
+                f32 distance = abs(f2_length(f2_sub(test_p,mp)));
+                             
+                if(distance < 5)
+                {
+                    f32 length = f2_distance(curve->points[3],curve->points[0]);
+                    length = length * 0.333f;
+//                                 f2 diff_v2 = f2_sub(mp,test_p);
+//                                 f2 new_p = f2_add(non_scaled_test_p,diff_v2);
+                                 
+                    if(i == 1)
+                    {
+                        fmj_editor_update_cp_and_handle(&curve->handle_a,&curve->points[1],handle_scale,mp,curve->points[0],curve->points[3],true);
+                    }
+                    else if(i == 2)
+                    {
+                        fmj_editor_update_cp_and_handle(&curve->handle_b,&curve->points[2],handle_scale,mp,curve->points[3],curve->points[0],true);
+                    }
+
+                    console->selected_points_index = i;
+                    break;
+                }                                                          
+            }
+            else
+            {
+                f2 non_scaled_test_p = test_p;
+                test_p = fmj_editor_apply_scale_f2(f2_create_f(0),test_p,scale_factor_inverted,f2_create_f(grid_dim.y));
+                f32 distance = abs(f2_length(f2_sub(test_p,mp)));
+                if(distance < 5)
+                {
+                    console->selected_points_index = i;
+                    f2 diff_v2 = f2_sub(mp,test_p);
+                    f2 new_p = f2_add(non_scaled_test_p,diff_v2);
+                    f2 move_diff = f2_sub(new_p,curve->points[i]);
+                    if(i == 0)
+                    {
+                        curve->handle_a = f2_add(move_diff,curve->handle_a);
+                    }
+                    else if(i == 3)
+                    {
+                        curve->handle_b = f2_add(move_diff,curve->handle_b);                                     
+                    }
+                                 
+                    curve->points[i] = new_p;
+                    fmj_editor_console_add_entry(console,"found point at x:%f y:%f ",new_p.x,new_p.y);
+                    break;
+                }                             
+            }
+        }
+
+        fmj_editor_update_cp_and_handle(&curve->handle_a,&curve->points[1],handle_scale,mp,curve->points[0],curve->points[3],false);
+        fmj_editor_update_cp_and_handle(&curve->handle_b,&curve->points[2],handle_scale,mp,curve->points[3],curve->points[0],false);
+                     
+        fmj_stretch_buffer_check_in(&console->points);                 
+    }                                      
 }
 
 void fmj_editor_console_show(FMJEditorConsole* console)
@@ -176,224 +363,45 @@ void fmj_editor_console_show(FMJEditorConsole* console)
     ImGui::EndChild();
     ImGui::Separator();
 
-    f32 min = 0;
-    f32 max = 400;
-
+    static ImVec4 colf = ImVec4(1.0f, 1.0f, 0.4f, 1.0f);
+    const ImU32 col = ImColor(colf);
+    
+    f2 grid_dim = f2_create(400,400);
+    ImVec2 canvas_size = ImVec2(grid_dim.x,grid_dim.y);
+    
     ImGui::Text("Curve Editor");
-
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
     ImVec2 p = ImGui::GetCursorScreenPos();
 
-    static ImVec4 colf = ImVec4(1.0f, 1.0f, 0.4f, 1.0f);
-     const ImU32 col = ImColor(colf);
-     ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    f2 scale_factor = f2_create(max_scale_factor_x,max_scale_factor);
+    f32 sf_inv_x = 1.0f/max_scale_factor;
+    f32 sf_inv_y = 1.0f/max_scale_factor;
+    
+    f2 scale_factor_inverted = f2_create(1.0f/scale_factor.x,1.0f/scale_factor.y);
+    fmj_editor_draw_grid(console,grid_dim);
 
-     static ImVec4 grey = ImVec4(0.8f, 0.8f, 0.8f, 0.5f);
-     const ImU32 grey_col = ImColor(grey);
-
-     int lines_count = 20;
-     int width = max;
-     int height = max;
-     ImVec2 canvas_size = ImVec2(max,max);//ImGui::GetContentRegionAvail();     
-     int offset = width / lines_count;
-     f2 grid_top_left = f2_create(50,0);
-     f2 final_start_grid_pos = f2_create_f(0);
-
-     f32 increment = max_scale_factor / (f32)lines_count;
-     f32 increment_x = max_scale_factor_x / (f32)lines_count;     
-     f32 next_text_num = 0;
-
-     f32 sf_inv_x = 1.0f/max_scale_factor_x;
-     f32 sf_inv_y = 1.0f/max_scale_factor;
-     
-     for(int x =0;x < lines_count;++x)
-     {
-         draw_list->AddLine(ImVec2(p.x + (offset * x) + grid_top_left.x,p.y + grid_top_left.y), ImVec2(p.x + (offset * x) + grid_top_left.x,p.y + height + grid_top_left.y), grey_col,1.0f);
-         if(x == 0)
-         {
-             final_start_grid_pos.x = p.x + (offset * x) + grid_top_left.x;
-         }
-         if(x % 2 == 0)
-         {
-             FMJString out_string = fmj_string_create_formatted("%.2f",&console->scratch_mem,&console->scratch_mem,next_text_num);
-             f2 bottom = f2_create(p.x + (offset * x),p.y + height);
-             draw_list->AddText(ImVec2(bottom.x + grid_top_left.x,bottom.y + grid_top_left.y), col, out_string.string);                      
-         }
-         next_text_num += increment_x;         
-     }
-
-     next_text_num = max_scale_factor;     
-
-     //horizontal lines
-     for(int y = 0;y < lines_count;++y)
-     {
-         draw_list->AddLine(ImVec2(p.x + grid_top_left.x,p.y + (offset * y) + grid_top_left.y), ImVec2(p.x + width + grid_top_left.x,p.y + (offset * y) + grid_top_left.y), grey_col,2.0f);
-         if(y == 0)
-         {
-             final_start_grid_pos.y = p.y + (offset * y) + grid_top_left.y;
-         }
-         if(y % 2 == 0)
-         {
-             FMJString out_string = fmj_string_create_formatted("%.2f",&console->scratch_mem,&console->scratch_mem,next_text_num);             
-             f2 left = f2_create(p.x,p.y + (offset * y));         
-             draw_list->AddText(ImVec2(left.x - 40 + grid_top_left.x,left.y + grid_top_left.y), col, out_string.string);                  
-         }
-         next_text_num -= increment;         
-     }
-
-     ImGui::SetCursorScreenPos(ImVec2(final_start_grid_pos.x,final_start_grid_pos.y));
-
+//click to add points
      p = ImGui::GetCursorScreenPos();     
      ImGui::InvisibleButton("canvas", canvas_size);
-     ImVec2 mouse_pos_in_canvas = ImVec2(ImGui::GetIO().MousePos.x - p.x, ImGui::GetIO().MousePos.y - p.y);     
+     ImVec2 mouse_pos_in_canvas = ImVec2(ImGui::GetIO().MousePos.x - p.x, ImGui::GetIO().MousePos.y - p.y);
+     f2 mp = f2_create(mouse_pos_in_canvas.x,mouse_pos_in_canvas.y);
+     
      if (ImGui::IsItemHovered())
      {
-         draw_list->AddNgonFilled(ImVec2(p.x + mouse_pos_in_canvas.x,p.y + mouse_pos_in_canvas.y),10.0f, col, 4);
-         if(ImGui::IsMouseDoubleClicked(0))
-         {
-             if(console->points.fixed.count == 0 && console->point_in_progress == false)//special case for first point added
-             {
-                 f2 point = console->unfinished_point.points[0] = f2_create(mouse_pos_in_canvas.x,mouse_pos_in_canvas.y);
-                 console->point_in_progress = true;             
-                 fmj_editor_console_add_entry(console,"added start point at x:%f y:%f ",point.x,point.y);                              
-             }
-             else if(console->point_in_progress == true)
-             {
-                 f2 point = f2_create(mouse_pos_in_canvas.x,mouse_pos_in_canvas.y);
-                 console->unfinished_point.points[3] = point;
-                 
-                 fmj_editor_update_cp_and_handle(&console->unfinished_point.handle_a,&console->unfinished_point.points[1],50,console->unfinished_point.points[3],console->unfinished_point.points[0],console->unfinished_point.points[3],true);
-                 fmj_editor_update_cp_and_handle(&console->unfinished_point.handle_b,&console->unfinished_point.points[2],50,console->unfinished_point.points[0],console->unfinished_point.points[3],console->unfinished_point.points[0],true);
-                 
-                 console->unfinished_point.min_max_range = f2_create(0,max);
-                 
-                 fmj_stretch_buffer_push(&console->points,&console->unfinished_point);
-                 console->unfinished_point.points[0] = f2_create_f(0);
-                 console->unfinished_point.points[1] = f2_create_f(0);
-                 console->unfinished_point.points[2] = f2_create_f(0);
-                 console->unfinished_point.points[3] = f2_create_f(0);
-                 console->point_in_progress = false;
-             }
-             else if(console->points.fixed.count > 0 && console->point_in_progress == false)
-             {
-//add new curve after first curve is full complete
-                 ASSERT(console->points.fixed.count > 0);
-                 
-                 FMJBezierCubicCurve prev_curve = fmj_stretch_buffer_get(FMJBezierCubicCurve,&console->points,console->points.fixed.count - 1);
-                 console->unfinished_point.points[0] = prev_curve.points[3];
-                 
-                 f2 point = f2_create(mouse_pos_in_canvas.x,mouse_pos_in_canvas.y);
-                 console->unfinished_point.points[3] = point;
-
-                 fmj_editor_update_cp_and_handle(&console->unfinished_point.handle_a,&console->unfinished_point.points[1],50,console->unfinished_point.points[3],console->unfinished_point.points[0],console->unfinished_point.points[3],true);
-                 fmj_editor_update_cp_and_handle(&console->unfinished_point.handle_b,&console->unfinished_point.points[2],50,console->unfinished_point.points[0],console->unfinished_point.points[3],console->unfinished_point.points[0],true);
-
-                 console->unfinished_point.min_max_range = f2_create(0,max);
-                 
-                 fmj_stretch_buffer_push(&console->points,&console->unfinished_point);
-                 console->unfinished_point.points[0] = f2_create_f(0);
-                 console->unfinished_point.points[1] = f2_create_f(0);
-                 console->unfinished_point.points[2] = f2_create_f(0);
-                 console->unfinished_point.points[3] = f2_create_f(0);
-                 console->point_in_progress = false;
-             }
-         }
-         else
-         {
-             console->selected_points_index = -1;             
-         }
-
+         fmj_editor_check_add_points(console,mp,grid_dim);
+         
          if(ImGui::IsMouseDown(0))
          {
              if(console->point_in_progress)
              {
-                 f2 mp = f2_create(mouse_pos_in_canvas.x,mouse_pos_in_canvas.y);                 
-                 f2 test_p = console->unfinished_point.points[0];
-                 f32 distance = abs(f2_length(f2_sub(test_p,mp)));
-                 if(distance < 5)
-                 {
-                     f2 new_p = f2_create(mp.x,mp.y);                     
-                     console->unfinished_point.points[0] = new_p;
-                     fmj_editor_console_add_entry(console,"found point at x:%f y:%f ",new_p.x,new_p.y);
-                 }                 
+                 fmj_editor_move_unfinished_point(console,mp);
              }
              else
              {
-                 for(int i = 0;i < console->points.fixed.count;++i)
-                 { 
-                     FMJBezierCubicCurve* curve = fmj_stretch_buffer_check_out(FMJBezierCubicCurve,&console->points,i);
-                     f2 p1 = curve->points[0];
-                     f2 p2 = curve->points[3];
-                     f2 c1 = curve->points[1];
-                     f2 c2 = curve->points[2];
-                 
-                     f2 mp = f2_create(mouse_pos_in_canvas.x,mouse_pos_in_canvas.y);
-                     for(int i = 0;i < 4;++i)
-                     {
-                         f2 test_p = curve->points[i];
-                         if(i == 1 || i == 2)//control points
-                         {
-                             if(i == 1)
-                                 test_p = curve->handle_a;
-                             if(i == 2)
-                                 test_p = curve->handle_b;
-
-
-                             f32 distance = abs(f2_length(f2_sub(test_p,mp)));
-                             if(distance < 5)
-                             {
-                                 f32 length = f2_distance(curve->points[3],curve->points[0]);
-                                 length = length * 0.333f;                                 
-                                 if(i == 1)
-                                 {
-                                     fmj_editor_update_cp_and_handle(&curve->handle_a,&curve->points[1],50,mp,curve->points[0],curve->points[3],true);
-                                 }
-                                 else if(i == 2)
-                                 {
-                                     fmj_editor_update_cp_and_handle(&curve->handle_b,&curve->points[2],50,mp,curve->points[3],curve->points[0],true);
-                                 }
-
-                                 console->selected_points_index = i;
-                                 break;
-                             }                                                          
-                         }
-                         else
-                         {
-
-                             f2 non_scaled_test_p = test_p;
-                             test_p = fmj_editor_apply_scale_f2(f2_create_f(0),test_p,f2_create(sf_inv_x,sf_inv_y),f2_create_f(max));
-
-                             f2 scaled_mp = fmj_editor_apply_scale_f2(f2_create_f(0),mp,f2_create(sf_inv_x,sf_inv_y),f2_create_f(max));
-                             
-                             f32 distance = abs(f2_length(f2_sub(test_p,mp)));
-                             if(distance < 5)
-                             {
-                                 console->selected_points_index = i;
-                                 f2 diff_v2 = f2_sub(mp,test_p);
-                                 f2 new_p = f2_add(non_scaled_test_p,diff_v2);
-                                 f2 move_diff = f2_sub(new_p,curve->points[i]);
-                                 if(i == 0)
-                                 {
-                                     curve->handle_a = f2_add(move_diff,curve->handle_a);
-                                 }
-                                 else if(i == 3)
-                                 {
-                                     curve->handle_b = f2_add(move_diff,curve->handle_b);                                     
-                                 }
-                                 
-                                 curve->points[i] = new_p;
-                                 fmj_editor_console_add_entry(console,"found point at x:%f y:%f ",new_p.x,new_p.y);
-                                 break;
-                             }                             
-                         }
-                     }
-
-                     fmj_editor_update_cp_and_handle(&curve->handle_a,&curve->points[1],50,mp,curve->points[0],curve->points[3],false);
-                     fmj_editor_update_cp_and_handle(&curve->handle_b,&curve->points[2],50,mp,curve->points[3],curve->points[0],false);
-                     
-                     fmj_stretch_buffer_check_in(&console->points);                 
-                 }                                  
+                 fmj_editor_move_point_at_mp(console,mp,scale_factor_inverted,grid_dim);
              }
-         }
+         }//end check if down
+         
      }
 
      if(console->points.fixed.count == 0 && console->point_in_progress)
@@ -413,6 +421,8 @@ void fmj_editor_console_show(FMJEditorConsole* console)
              f32 b = 1.0f/max_scale_factor_x;
              f32 c = 1.0f/max_scale_factor;
 
+             f32 max = grid_dim.y;
+             
              f32 d = ((max - p1.y) - ((max - p1.y) * c));
              f32 e = ((max - p2.y) - ((max - p2.y) * c));
 
@@ -450,7 +460,6 @@ void fmj_editor_console_show(FMJEditorConsole* console)
 //     ImGui::SliderFloat2("test_v",t, float v_min, float v_max, const char* format = "%.3f", float power = 1.0f);     
      if(ImGui::Button("Save"))
      {
-         
          //teste evaluate
          //first find the curve we are in against scale x
          //than evalute the curve  point at t to get y
