@@ -333,7 +333,11 @@ void fmj_editor_draw_curves(FMJEditorConsole* console,f2 grid_dim,f2 p)
 {
     ImDrawList* draw_list = ImGui::GetWindowDrawList();        
     static ImVec4 colf = ImVec4(1.0f, 1.0f, 0.4f, 1.0f);    
-    const ImU32 col = ImColor(colf);    
+    const ImU32 col = ImColor(colf);
+
+    f32 b = 1.0f/max_scale_factor_x;
+    f32 c = 1.0f/max_scale_factor;
+    
     if(console->points.fixed.count == 0 && console->point_in_progress)
     {
         f2 p1 = console->unfinished_point.points[0];
@@ -348,9 +352,7 @@ void fmj_editor_draw_curves(FMJEditorConsole* console,f2 grid_dim,f2 p)
             f2 p2 = curve.points[3];
             f2 c1 = curve.points[1];
             f2 c2 = curve.points[2];
-            f32 b = 1.0f/max_scale_factor_x;
-            f32 c = 1.0f/max_scale_factor;
-
+    
             f32 max = grid_dim.y;
              
             f32 d = ((max - p1.y) - ((max - p1.y) * c));
@@ -378,8 +380,9 @@ void fmj_editor_draw_curves(FMJEditorConsole* console,f2 grid_dim,f2 p)
             draw_list->AddBezierCurve(ImVec2((p.x + (p1.x * b)),p.y + p1.y + d), ImVec2((p.x + (c1.x*b)),p.y + c1.y + c1ys), ImVec2((p.x + (c2.x*b)),p.y + c2.y + c2ys), ImVec2((p.x + (p2.x*b)),p.y + p2.y + e), col, 3,20);
         }
     }
-     
-    draw_list->AddNgonFilled(ImVec2(p.x + console->last_result.x,p.y + console->last_result.y),8.0f, col, 4);    
+
+    f2 out_p = fmj_editor_apply_scale_f2(p,console->last_result,f2_create(b,c),grid_dim);     
+    draw_list->AddNgonFilled(ImVec2(out_p.x,out_p.y),8.0f, col, 4);    
 }
 
 void fmj_editor_console_show(FMJEditorConsole* console)
@@ -439,13 +442,9 @@ void fmj_editor_console_show(FMJEditorConsole* console)
     ImVec2 p = ImGui::GetCursorScreenPos();
 
     f2 scale_factor = f2_create(max_scale_factor_x,max_scale_factor);
-    f32 sf_inv_x = 1.0f/max_scale_factor;
-    f32 sf_inv_y = 1.0f/max_scale_factor;
-    
     f2 scale_factor_inverted = f2_create(1.0f/scale_factor.x,1.0f/scale_factor.y);
     
     fmj_editor_draw_grid(console,grid_dim);
-    
 
 //move points from user input
     p = ImGui::GetCursorScreenPos();    
@@ -489,8 +488,8 @@ void fmj_editor_console_show(FMJEditorConsole* console)
          for(int i = 0;i < console->points.fixed.count;++i)
          {
              FMJBezierCubicCurve curve = fmj_stretch_buffer_get(FMJBezierCubicCurve,&console->points,i);
-             float p1x = curve.points[0].x;//minx
-             float p2x = curve.points[3].x;//maxx
+             float p1x = curve.points[0].x / max_scale_factor_x;
+             float p2x = curve.points[3].x / max_scale_factor_x;
 
              f32 test_x_in_time_t = console->test_x / max_scale_factor_x;
              float test_x_in_drawing_coridinates = (test_x_in_time_t * curve.min_max_range.y);
@@ -500,22 +499,39 @@ void fmj_editor_console_show(FMJEditorConsole* console)
                  f2 p2 = curve.points[3];
                  f2 c1 = curve.points[1];
                  f2 c2 = curve.points[2];
-
+#if 0
                  f2 p1s = fmj_editor_apply_scale_f2(f2_create_f(0),p1,scale_factor_inverted,f2_create(canvas_size.x,canvas_size.y));
                  f2 p2s = fmj_editor_apply_scale_f2(f2_create_f(0),p2,scale_factor_inverted,f2_create(canvas_size.x,canvas_size.y));
                  f2 c1s = fmj_editor_apply_scale_f2(f2_create_f(0),c1,scale_factor_inverted,f2_create(canvas_size.x,canvas_size.y));
                  f2 c2s = fmj_editor_apply_scale_f2(f2_create_f(0),c2,scale_factor_inverted,f2_create(canvas_size.x,canvas_size.y));
 
+                 test_x_in_drawing_coridinates *= scale_factor_inverted.x;
                  f32 test_x_px_diff_in_drawing_cords  = test_x_in_drawing_coridinates - p1s.x;                 
                  f32 length_of_segment_drawing_cords = p2s.x - p1s.x;
                  f32 tesx_x_in_local_normalized_cords = test_x_px_diff_in_drawing_cords / length_of_segment_drawing_cords;
                  
                  ImVec2 v2 = ImBezierCalc(ImVec2(p1s.x,p1s.y),ImVec2(c1s.x,c1s.y),ImVec2(c2s.x,c2s.y),ImVec2(p2s.x,p2s.y),tesx_x_in_local_normalized_cords);
                  //v2.y should be the value we are after in drawing cords.
-//                 f2 out_p = fmj_editor_apply_scale_f2(f2_create_f(0),f2_create(v2.x,v2.y),scale_factor_inverted,f2_create(canvas_size.x,canvas_size.y));
+                 f2 out_p = fmj_editor_apply_scale_f2(f2_create_f(0),f2_create(v2.x,v2.y),scale_factor,f2_create(canvas_size.x,canvas_size.y));
+                 
+                 f2 result_c = out_p;//f2_mul(f2_create(v2.x,v2.y),scale_factor);
+                 console->last_result = result_c;
+#else
+                 f2 p1s = fmj_editor_apply_scale_f2(f2_create_f(0),p1,scale_factor_inverted,f2_create(canvas_size.x,canvas_size.y));
+                 f2 p2s = fmj_editor_apply_scale_f2(f2_create_f(0),p2,scale_factor_inverted,f2_create(canvas_size.x,canvas_size.y));
+                 
+                 f32 test_x_px_diff_in_drawing_cords  = test_x_in_drawing_coridinates - p1s.x;                 
+                 f32 length_of_segment_drawing_cords = p2s.x - p1s.x;
+                 f32 tesx_x_in_local_normalized_cords = test_x_px_diff_in_drawing_cords / length_of_segment_drawing_cords;
+                 
+                 ImVec2 v2 = ImBezierCalc(ImVec2(p1.x,p1.y),ImVec2(c1.x,c1.y),ImVec2(c2.x,c2.y),ImVec2(p2.x,p2.y),tesx_x_in_local_normalized_cords);
+                 //v2.y should be the value we are after in drawing cords.
+
+                 
                  f2 result_c = f2_create(v2.x,v2.y);
                  console->last_result = result_c;
-                 int a =0;
+#endif
+                 
                  break;
              }
          }
