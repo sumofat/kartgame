@@ -33,6 +33,8 @@ struct FMJEditorConsole
     f2 prev_mp;
     f2 mp;
     f2 grid_pos;
+    bool is_moving_point;
+    FMJBezierCubicCurve* moving_curve;
 };
 
 f32 max_scale_factor = 10.0f;
@@ -262,10 +264,6 @@ void fmj_editor_check_add_points(FMJEditorConsole* console,f2 mp,f2 grid_dim,f2 
             console->point_in_progress = false;
         }
     }
-    else
-    {
-        console->selected_points_index = -1;             
-    }
 }    
 
 void fmj_editor_move_unfinished_point(FMJEditorConsole* console,f2 mp)
@@ -297,57 +295,26 @@ void fmj_editor_move_point_at_mp(FMJEditorConsole* console,f2 mp,f2 scale_factor
         f2 c2 = curve->points[2];
 
         f2 handle_scale = f2_create_f(10);                     
-        for(int i = 0;i < 4;++i)
+        for(int j = 0;j < 4;++j)
         {
-            
-            f2 test_p = curve->points[i];
+            f2 test_p = curve->points[j];
             f2 non_offset_test_p = test_p;
 
-            if(i == 1 || i == 2)//control points
+            if(j == 1 || j == 2)//control points
             {
-                if(i == 1)
+                if(j == 1)
                     test_p = curve->handle_a;
-                if(i == 2)
+                if(j == 2)
                     test_p = curve->handle_b;
-
+ 
                 f2 scaled_test_p = f2_sub(test_p,offset);
                 test_p = fmj_editor_apply_scale_f2(f2_create_f(0),scaled_test_p,scale_factor_inverted,f2_create_f(grid_dim.y));
                 f32 distance = abs(f2_length(f2_sub(test_p,mp)));
                 if(distance < 5)
                 {
-                    f32 length = f2_distance(p2,p1);
-                    length = length * 0.333f;
-                    if(i == 1)
-                    {
-                        f2 scaled_p1 = fmj_editor_apply_scale_f2(f2_create_f(0),p1,scale_factor_inverted,f2_create_f(grid_dim.y));
-                        f2 scaled_p3 = fmj_editor_apply_scale_f2(f2_create_f(0),p2,scale_factor_inverted,f2_create_f(grid_dim.y));
-
-                        f2 diff_v2 = f2_sub(mp,test_p);
-                        f2 new_p = f2_add(curve->handle_a,diff_v2);
-                        curve->handle_a = new_p;
-    
-                        fmj_editor_update_cp(curve->handle_a,
-                                             &curve->points[1],
-                                             f2_create_f(50),
-                                             scaled_p1,
-                                             scaled_p3);
-                    }
-                    else if(i == 2)
-                    {
-                        f2 scaled_p1 = fmj_editor_apply_scale_f2(f2_create_f(0),curve->points[0],scale_factor_inverted,f2_create_f(grid_dim.y));;
-                        f2 scaled_p3 = fmj_editor_apply_scale_f2(f2_create_f(0),curve->points[3],scale_factor_inverted,f2_create_f(grid_dim.y));
-
-                        f2 diff_v2 = f2_sub(mp,test_p);
-                        f2 new_p = f2_add(curve->handle_b,diff_v2);
-                        curve->handle_b = new_p;
-    
-                        fmj_editor_update_cp(curve->handle_a,
-                                             &curve->points[1],
-                                             f2_create_f(50),
-                                             scaled_p1,
-                                             scaled_p3);
-                    }
-                    console->selected_points_index = i;
+                     console->selected_points_index = j;
+                     console->is_moving_point = true;
+                     console->moving_curve = curve;
                     break;
                 }                                                          
             }
@@ -358,22 +325,9 @@ void fmj_editor_move_point_at_mp(FMJEditorConsole* console,f2 mp,f2 scale_factor
                 f32 distance = abs(f2_length(f2_sub(test_p,mp)));
                 if(distance < 5)
                 {
-                    console->selected_points_index = i;
-                    f2 diff_v2 = f2_sub(mp,test_p);
-                    
-                    f2 new_p = f2_add(non_offset_test_p,diff_v2);
-                    f2 move_diff = f2_sub(new_p,non_offset_test_p);
-                    if(i == 0)
-                    {
-                        curve->handle_a = f2_add(move_diff,curve->handle_a);
-                    }
-                    else if(i == 3)
-                    {
-                        curve->handle_b = f2_add(move_diff,curve->handle_b);                                     
-                    }
-                                 
-                    curve->points[i] = new_p;
-                    fmj_editor_console_add_entry(console,"found point at x:%f y:%f ",new_p.x,new_p.y);
+                    console->selected_points_index = j;
+                    console->is_moving_point = true;
+                    console->moving_curve = curve;                    
                     break;
                 }                             
             }
@@ -538,8 +492,103 @@ void fmj_editor_console_show(FMJEditorConsole* console)
                 fmj_editor_move_point_at_mp(console,mp,scale_factor,scale_factor_inverted,grid_dim);
             }
         }//end check if down
+        else
+        {
+            console->is_moving_point = false;
+            console->moving_curve = nullptr;
+        }
     }
 
+    if(console->is_moving_point && console->moving_curve && console->selected_points_index >= 0)
+    {
+        f2 offset = f2_mul(console->grid_pos,grid_dim);
+        offset = f2_create(offset.x,-offset.y);
+
+        int i = console->selected_points_index;
+        FMJBezierCubicCurve* curve = console->moving_curve;
+        f2 test_p = curve->points[i];
+        f2 non_offset_test_p = test_p;
+
+        f2 p1 = curve->points[0];
+        f2 p2 = curve->points[3];
+        f2 c1 = curve->points[1];
+        f2 c2 = curve->points[2];
+
+        f2 scaled_p1 = fmj_editor_apply_scale_f2(f2_create_f(0),p1,scale_factor_inverted,f2_create_f(grid_dim.y));
+        f2 scaled_p3 = fmj_editor_apply_scale_f2(f2_create_f(0),p2,scale_factor_inverted,f2_create_f(grid_dim.y));
+        
+        f32 length = f2_distance(p2,p1);
+        length = length * 0.333f;
+        f2 scaled_test_p = f2_sub(test_p,offset);
+        test_p = fmj_editor_apply_scale_f2(f2_create_f(0),scaled_test_p,scale_factor_inverted,f2_create_f(grid_dim.y));
+        if(i == 1 || i == 2)//control points
+        {
+            if(i == 1)
+                test_p = curve->handle_a;
+            if(i == 2)
+                test_p = curve->handle_b;
+
+            scaled_test_p = f2_sub(test_p,offset);
+            test_p = fmj_editor_apply_scale_f2(f2_create_f(0),scaled_test_p,scale_factor_inverted,f2_create_f(grid_dim.y));            
+            if(i == 1)
+            {
+                f2 diff_v2 = f2_sub(mp,test_p);
+                f2 new_p = f2_add(curve->handle_a,diff_v2);
+                curve->handle_a = new_p;
+
+                fmj_editor_update_cp(curve->handle_a,
+                                     &curve->points[1],
+                                     f2_create_f(50),
+                                     scaled_p1,
+                                     scaled_p3);
+                
+            }
+            else if(i == 2)
+            {
+                f2 diff_v2 = f2_sub(mp,test_p);
+                f2 new_p = f2_add(curve->handle_b,diff_v2);
+                curve->handle_b = new_p;
+    
+                fmj_editor_update_cp(curve->handle_b,
+                                     &curve->points[2],
+                                     f2_create_f(50),
+                                     scaled_p3,
+                                     scaled_p1);
+            }                        
+        }
+        else
+        {
+            test_p = fmj_editor_apply_scale_f2(f2_create_f(0),scaled_test_p,scale_factor_inverted,f2_create_f(grid_dim.y));
+            f2 diff_v2 = f2_sub(mp,test_p);
+                    
+            f2 new_p = f2_add(non_offset_test_p,diff_v2);
+            f2 move_diff = f2_sub(new_p,non_offset_test_p);
+            if(i == 0)
+            {
+                curve->handle_a = f2_add(move_diff,curve->handle_a);
+            }
+            else if(i == 3)
+            {
+                curve->handle_b = f2_add(move_diff,curve->handle_b);                                     
+            }
+                                 
+            curve->points[i] = new_p;
+            fmj_editor_console_add_entry(console,"found point at x:%f y:%f ",new_p.x,new_p.y);                
+        }
+
+        fmj_editor_update_cp(curve->handle_a,
+                             &curve->points[1],
+                             f2_create_f(50),
+                             p1,
+                             p2);
+    
+        fmj_editor_update_cp(curve->handle_b,
+                             &curve->points[2],
+                             f2_create_f(50),
+                             p2,
+                             p1);                
+    }
+    
     fmj_editor_draw_curves(console,grid_dim,f2_create(p.x,p.y));
 
 //Test bed 
@@ -575,24 +624,7 @@ void fmj_editor_console_show(FMJEditorConsole* console)
                  f2 p2 = curve.points[3];
                  f2 c1 = curve.points[1];
                  f2 c2 = curve.points[2];
-#if 0
-                 f2 p1s = fmj_editor_apply_scale_f2(f2_create_f(0),p1,scale_factor_inverted,f2_create(canvas_size.x,canvas_size.y));
-                 f2 p2s = fmj_editor_apply_scale_f2(f2_create_f(0),p2,scale_factor_inverted,f2_create(canvas_size.x,canvas_size.y));
-                 f2 c1s = fmj_editor_apply_scale_f2(f2_create_f(0),c1,scale_factor_inverted,f2_create(canvas_size.x,canvas_size.y));
-                 f2 c2s = fmj_editor_apply_scale_f2(f2_create_f(0),c2,scale_factor_inverted,f2_create(canvas_size.x,canvas_size.y));
 
-                 test_x_in_drawing_coridinates *= scale_factor_inverted.x;
-                 f32 test_x_px_diff_in_drawing_cords  = test_x_in_drawing_coridinates - p1s.x;                 
-                 f32 length_of_segment_drawing_cords = p2s.x - p1s.x;
-                 f32 tesx_x_in_local_normalized_cords = test_x_px_diff_in_drawing_cords / length_of_segment_drawing_cords;
-                 
-                 ImVec2 v2 = ImBezierCalc(ImVec2(p1s.x,p1s.y),ImVec2(c1s.x,c1s.y),ImVec2(c2s.x,c2s.y),ImVec2(p2s.x,p2s.y),tesx_x_in_local_normalized_cords);
-                 //v2.y should be the value we are after in drawing cords.
-                 f2 out_p = fmj_editor_apply_scale_f2(f2_create_f(0),f2_create(v2.x,v2.y),scale_factor,f2_create(canvas_size.x,canvas_size.y));
-                 
-                 f2 result_c = out_p;//f2_mul(f2_create(v2.x,v2.y),scale_factor);
-                 console->last_result = result_c;
-#else
                  f2 p1s = fmj_editor_apply_scale_f2(f2_create_f(0),p1,scale_factor_inverted,f2_create(canvas_size.x,canvas_size.y));
                  f2 p2s = fmj_editor_apply_scale_f2(f2_create_f(0),p2,scale_factor_inverted,f2_create(canvas_size.x,canvas_size.y));
                  
@@ -605,7 +637,6 @@ void fmj_editor_console_show(FMJEditorConsole* console)
                  
                  f2 result_c = f2_create(v2.x,v2.y);
                  console->last_result = result_c;
-#endif
                  
                  break;
              }
