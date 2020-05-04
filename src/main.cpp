@@ -113,38 +113,38 @@ void fmj_scene_process_children_recrusively(FMJSceneObject* so,u64 c_mat,u64 p_m
                 FMJAssetMesh* m_ = fmj_stretch_buffer_check_out(FMJAssetMesh,&ctx->asset_tables->meshes,mesh_id);
                 if(m_)
                 {
-                    FMJAssetMesh  m = *m_;
+                    FMJAssetMesh  mesh = *m_;
                     //get mesh issue render command
                     FMJRenderCommand com = {};        
                     FMJRenderGeometry geo = {};
-                    if(m.index32_count > 0)
+                    if(mesh.index32_count > 0)
                     {
                         com.is_indexed = true;
-                        geo.buffer_id_range = m.mesh_resource.buffer_range;
-                        geo.index_id = m.mesh_resource.index_id;
-                        geo.index_count = m.index32_count;                
+                        geo.buffer_id_range = mesh.mesh_resource.buffer_range;
+                        geo.index_id = mesh.mesh_resource.index_id;
+                        geo.index_count = mesh.index32_count;                
                     }
-                    else if(m.index16_count > 0)
+                    else if(mesh.index16_count > 0)
                     {
                         com.is_indexed = true;
-                        geo.buffer_id_range = m.mesh_resource.buffer_range;
-                        geo.index_id = m.mesh_resource.index_id;
-                        geo.index_count = m.index16_count;                
+                        geo.buffer_id_range = mesh.mesh_resource.buffer_range;
+                        geo.index_id = mesh.mesh_resource.index_id;
+                        geo.index_count = mesh.index16_count;                
                     }
                     else
                     {
                         com.is_indexed = false;
-                        geo.buffer_id_range = m.mesh_resource.buffer_range;
-                        geo.index_id = m.mesh_resource.index_id;
-                        geo.count = m.vertex_count;
+                        geo.buffer_id_range = mesh.mesh_resource.buffer_range;
+                        geo.index_id = mesh.mesh_resource.index_id;
+                        geo.count = mesh.vertex_count;
                     }
             
                     geo.offset = 0;
-                    geo.base_color = m.base_color;
+                    geo.base_color = mesh.base_color;
                     com.geometry = geo;
 
-                    com.material_id = m.material_id;
-                    com.texture_id = m.metallic_roughness_texture_id;
+                    com.material_id = mesh.material_id;
+                    com.texture_id = mesh.metallic_roughness_texture_id;
                     com.model_matrix_id = child_so->m_id;
                     com.camera_matrix_id = c_mat;
                     com.perspective_matrix_id = p_mat;
@@ -698,7 +698,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     f32 size_sin = 0;
     game_state.current_player_id = 0;
 
-    bool show_demo_window = true;
+    bool show_demo_window = false;
     bool show_kart_editor = true;
     FMJEditorConsole console;
     fmj_editor_console_init(&console);
@@ -890,9 +890,9 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                 {
                     f4x4 m_mat = fmj_stretch_buffer_get(f4x4,matrix_buffer,command.model_matrix_id);
                     f4x4 c_mat = fmj_stretch_buffer_get(f4x4,matrix_buffer,command.camera_matrix_id);
-                    f4x4 p_mat = fmj_stretch_buffer_get(f4x4,matrix_buffer,command.perspective_matrix_id);
+                    f4x4 proj_mat = fmj_stretch_buffer_get(f4x4,matrix_buffer,command.perspective_matrix_id);
                     f4x4 world_mat = f4x4_mul(c_mat,m_mat);
-                    f4x4 finalmat = f4x4_mul(p_mat,world_mat);
+                    f4x4 finalmat = f4x4_mul(proj_mat,world_mat);
                     m_mat.c0.x = (f32)(matrix_quad_buffer.count * sizeof(f4x4));
                     m_mat.c0.y = 5.0f;
                     
@@ -915,9 +915,9 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                     D12RendererCode::AddGraphicsRootDescTable(1,D12RendererCode::default_srv_desc_heap,D12RendererCode::default_srv_desc_heap->GetGPUDescriptorHandleForHeapStart());
 
                     int slot = 0;
-                    for(int i = command.geometry.buffer_id_range.x;i <= command.geometry.buffer_id_range.y;++i)
+                    for(int j = command.geometry.buffer_id_range.x;j <= command.geometry.buffer_id_range.y;++j)
                     {
-                        D3D12_VERTEX_BUFFER_VIEW bv = fmj_stretch_buffer_get(D3D12_VERTEX_BUFFER_VIEW,&asset_tables.vertex_buffers,i);
+                        D3D12_VERTEX_BUFFER_VIEW bv = fmj_stretch_buffer_get(D3D12_VERTEX_BUFFER_VIEW,&asset_tables.vertex_buffers,j);
                         D12RendererCode::AddSetVertexBufferCommand(slot++,bv);
                     }
                     
