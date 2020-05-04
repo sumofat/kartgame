@@ -60,6 +60,9 @@ struct FMJAssetContext
 #include "assets.cpp"
 
 #include "camera.h"
+
+#include "animation.h"
+
 #include "editor.h"
 //Game files
 #include "carframe.h"
@@ -728,14 +731,12 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             ImGui::ShowDemoWindow(&show_demo_window);            
         }
 
-
         if(show_kart_editor)
         {
             if (ImGui::BeginMainMenuBar())
             {
                 if (ImGui::BeginMenu("Windows"))
                 {
-
                     if (ImGui::MenuItem("SceneObjects"))
                     {
                         fmj_editor_console_add_entry(&console,"Start showing scene objects window");
@@ -755,7 +756,22 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         {
             fmj_editor_console_show(&console);
         }
+
+//        if(console.curves_output.buffer.fixed.count > 0)
+        {
+            FMJFileReadResult read_result = fmj_file_platform_read_entire_file("curve1");
+            if(read_result.content_size > 0)
+            {
+                FMJCurves* read_back_curves = (FMJCurves*)read_result.content;
+                f32 acr = fmj_animation_curve_evaluate(console.curves_output,-4.0f);
+                int a = 0;
+            }
+            
+            int a = 0;
+        }
+        
         //END EDITOR IMGUI
+        
 //Game Code 
         if(ps->input.keyboard.keys[keys.s].down)
         {

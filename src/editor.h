@@ -3,11 +3,6 @@
 #define EDITOR_CONSOLE_ENTRY_MAX_TEXT_SIZE 1024
 #define EDITOR_CONSOLE_ENTRY_MAX_BEFORE_RESET 5000
 
-struct FMJCurve
-{
-    f2 points[4];    
-};
-
 struct FMJBezierCubicCurve
 {
     f2 points[4];
@@ -43,7 +38,7 @@ struct FMJEditorConsole
     FMJBezierCubicCurve* moving_curve;
 
     //test save output
-    FMJStretchBuffer curves_output;
+    FMJCurves curves_output;
 };
 
 f32 max_scale_factor = 10.0f;
@@ -99,7 +94,7 @@ void fmj_editor_console_init(FMJEditorConsole* console)
         console->selected_points_index = -1;
         console->selected_curve_index = -1;
         console->grid_pos = f2_create_f(0);
-        console->curves_output = fmj_stretch_buffer_init(1,sizeof(FMJBezierCubicCurve),8);
+        console->curves_output.buffer = fmj_stretch_buffer_init(1,sizeof(FMJBezierCubicCurve),8);
     }
 }
 
@@ -260,7 +255,6 @@ void fmj_editor_check_add_points(FMJEditorConsole* console,f2 mp,f2 grid_dim,f2 
         {
             f2 point = console->unfinished_point.points[0] = mp;
             console->point_in_progress = true;             
-            fmj_editor_console_add_entry(console,"added start point at x:%f y:%f ",point.x,point.y);                              
         }
         else if(console->point_in_progress == true)
         {
@@ -285,7 +279,6 @@ void fmj_editor_move_unfinished_point(FMJEditorConsole* console,f2 mp)
     {
         f2 new_p = f2_create(mp.x,mp.y);                     
         console->unfinished_point.points[0] = new_p;
-        fmj_editor_console_add_entry(console,"found point at x:%f y:%f ",new_p.x,new_p.y);
     }                 
 }
 
@@ -610,7 +603,6 @@ void fmj_editor_console_show(FMJEditorConsole* console)
                 fmj_stretch_buffer_check_in(&console->points);                            
             }
 
-            fmj_editor_console_add_entry(console,"found point at x:%f y:%f ",new_p.x,new_p.y);                
         }
 
         fmj_editor_update_cp(curve->handle_a,
@@ -674,90 +666,53 @@ void fmj_editor_console_show(FMJEditorConsole* console)
                  f32 test_x_px_diff_in_drawing_cords  = test_x_in_drawing_coridinates - p1s.x;                 
                  f32 length_of_segment_drawing_cords = p2s.x - p1s.x;
                  f32 tesx_x_in_local_normalized_cords = test_x_px_diff_in_drawing_cords / length_of_segment_drawing_cords;
-
-                 FMJBezierCubicCurve newcurve = {};
-                 newcurve.points[0].x = p1.x / curve.min_max_range.y;
-                 newcurve.points[0].y = (curve.min_max_range.y - p1.y) / curve.min_max_range.y;
-
-                 newcurve.points[1].x = c1.x / curve.min_max_range.y;
-                 newcurve.points[1].y = c1.y / curve.min_max_range.y;
-
-                 newcurve.points[2].x = c2.x / curve.min_max_range.y;
-                 newcurve.points[2].y = c2.y / curve.min_max_range.y;
-
-                 newcurve.points[3].x = p2.x / curve.min_max_range.y;
-                 newcurve.points[3].y = (curve.min_max_range.y - p2.y) / curve.min_max_range.y;
-
-                 newcurve.handle_a.x  = ha.x / curve.min_max_range.y;
-                 newcurve.handle_a.y  = ha.y / curve.min_max_range.y;
-
-                 newcurve.handle_b.x  = hb.x / curve.min_max_range.y;
-                 newcurve.handle_b.y  = hb.y / curve.min_max_range.y;
                  
                  ImVec2 v2 = ImBezierCalc(ImVec2(p1.x,p1.y),ImVec2(c1.x,c1.y),ImVec2(c2.x,c2.y),ImVec2(p2.x,p2.y),tesx_x_in_local_normalized_cords);
                  
                  f2 result_c = f2_create(v2.x,v2.y);
                  console->last_result = result_c;
-                 
+
                  break;
              }
          }
 
-         fmj_editor_console_add_entry(console,"saving curve");
+         fmj_stretch_buffer_clear(&console->curves_output.buffer);
          for(int ci = 0;ci < console->points.fixed.count;++ci)
          {
-             FMJBezierCubicCurve curve = {};
-             //f2 offset = f2_mul(console->grid_pos,grid_dim);
-//             offset = f2_create(offset.x,-offset.y);
-             f2 p1 = f2_sub(curve.points[0],offset);
-             f2 p2 = f2_sub(curve.points[3],offset);
-             f2 c1 = f2_sub(curve.points[1],offset);
-             f2 c2 = f2_sub(curve.points[2],offset);
-             f2 h1 = f2_sub(curve.handle_a,offset);
-             f2 h2 = f2_sub(curve.handle_b,offset);
+             FMJBezierCubicCurve curve = fmj_stretch_buffer_get(FMJBezierCubicCurve,&console->points,ci);
+             f2 p1 = curve.points[0];
+             f2 p2 = curve.points[3];
+             f2 c1 = curve.points[1];
+             f2 c2 = curve.points[2];
+             f2 h1 = curve.handle_a;
+             f2 h2 = curve.handle_b;
+                 
+             FMJBezierCubicCurve newcurve = {};
+             p1.x = newcurve.points[0].x = p1.x / curve.min_max_range.y;
+             p1.y = newcurve.points[0].y = (curve.min_max_range.y - p1.y) / curve.min_max_range.y;
 
-             f32 max = grid_dim.y;
-             f2 pp = f2_create(p.x,p.y);
-             p1 = fmj_editor_apply_scale_f2(pp,p1,scale_factor_inverted,f2_create(grid_dim.x,grid_dim.y));             
-             p2 = fmj_editor_apply_scale_f2(pp,p2,scale_factor_inverted,f2_create(grid_dim.x,grid_dim.y));
-             c1 = fmj_editor_apply_scale_f2(pp,c1,scale_factor_inverted,f2_create(grid_dim.x,grid_dim.y));
-             c2 = fmj_editor_apply_scale_f2(pp,c2,scale_factor_inverted,f2_create(grid_dim.x,grid_dim.y));
-             h1 = fmj_editor_apply_scale_f2(pp,h1,scale_factor_inverted,f2_create(grid_dim.x,grid_dim.y));
-             h2 = fmj_editor_apply_scale_f2(pp,h2,scale_factor_inverted,f2_create(grid_dim.x,grid_dim.y));
+             c1.x = newcurve.points[1].x = c1.x / curve.min_max_range.y;
+             c1.y = newcurve.points[1].y = (curve.min_max_range.y - c1.y) / curve.min_max_range.y;
 
-             curve.points[0] = p1;
-             curve.points[3] = p2;
-             curve.points[1] = c1;
-             curve.points[2] = c2;
-             curve.handle_a = h1;
-             curve.handle_b = h2;
+             c2.x = newcurve.points[2].x = c2.x / curve.min_max_range.y;
+             c2.y = newcurve.points[2].y = (curve.min_max_range.y - c2.y) / curve.min_max_range.y;
+
+             p2.x = newcurve.points[3].x = p2.x / curve.min_max_range.y;
+             p2.y = newcurve.points[3].y = (curve.min_max_range.y - p2.y) / curve.min_max_range.y;
+
+             newcurve.handle_a.x = h1.x / curve.min_max_range.y;
+             newcurve.handle_a.y = h1.y / curve.min_max_range.y;
+
+             newcurve.handle_b.x = h2.x / curve.min_max_range.y;
+             newcurve.handle_b.y = (curve.min_max_range.y - h2.y) / curve.min_max_range.y;
+
+             newcurve.min_max_range = curve.min_max_range;
              
-             fmj_stretch_buffer_push(&console->curves_output,&curve);
+             fmj_stretch_buffer_push(&console->curves_output.buffer,&newcurve);
          }
-
-         for(int ci = 0;ci < console->curves_output.fixed.count;++ci)
-         {
-             FMJBezierCubicCurve curve = fmj_stretch_buffer_get(FMJBezierCubicCurve,&console->curves_output,ci);
-
-             float p1x = curve.points[0].x;
-             float p2x = curve.points[3].x;
-
-             f32 test_x_in_time_t = console->test_x;
-             if(p1x < test_x_in_time_t && p2x > test_x_in_time_t)
-             {
-                 f2 p1 = curve.points[0];
-                 f2 p2 = curve.points[3];
-                 f2 c1 = curve.points[1];
-                 f2 c2 = curve.points[2];
-
-                 f32 test_x_px_diff_in_drawing_cords  = test_x_in_time_t - p1.x;
-                 f32 length_of_segment_drawing_cords = p2.x - p1.x;
-                 f32 tesx_x_in_local_normalized_cords = test_x_px_diff_in_drawing_cords / length_of_segment_drawing_cords;
-
-                 ImVec2 v2 = ImBezierCalc(ImVec2(p1.x,p1.y),ImVec2(c1.x,c1.y),ImVec2(c2.x,c2.y),ImVec2(p2.x,p2.y),tesx_x_in_local_normalized_cords);
-                 int a = 0;
-             }
-         }
+         FMJFilePointer file = {};
+         char* file_name = "curve1";
+         fmj_file_platform_write_memory(&file,file_name,&console->curves_output,sizeof(console->curves_output),true,"wb");
          
      }
 

@@ -1937,9 +1937,9 @@ namespace D12RendererCode
                 //call discard resource.
                 // TODO(Ray Garner): Figure out how to properly release this
                 //finished_uop->temp_arena.resource->Release();
-                UploadOpKey k = {finished_uop->id};
+                UploadOpKey k_ = {finished_uop->id};
                 //AnythingCacheCode::RemoveThingFL(&upload_operations.table_cache,&k);
-                fmj_anycache_remove_free_list(&upload_operations.table_cache,&k);
+                fmj_anycache_remove_free_list(&upload_operations.table_cache,&k_);
             }
             //AnythingCacheCode::ResetCache(&upload_operations.table_cache);
             fmj_anycache_reset(&upload_operations.table_cache);
@@ -2172,9 +2172,9 @@ namespace D12RendererCode
                 //call discard resource.
                 
                 //finished_uop->temp_arena.resource->Release();
-                UploadOpKey k = {finished_uop->id};
+                UploadOpKey k_ = {finished_uop->id};
                 //AnythingCacheCode::RemoveThingFL(&upload_operations.table_cache,&k);
-                fmj_anycache_remove_free_list(&upload_operations.table_cache,&k);
+                fmj_anycache_remove_free_list(&upload_operations.table_cache,&k_);
             }
 //            AnythingCacheCode::ResetCache(&upload_operations.table_cache);
             fmj_anycache_reset(&upload_operations.table_cache);
@@ -2217,8 +2217,8 @@ namespace D12RendererCode
         
         for (int i = 0; i < ca->used_list_indexes.fixed.count; ++i)
         {
-            u64 index = *((u64*)ca->used_list_indexes.fixed.base + i);
-            D12CommandListEntry* cle = (D12CommandListEntry*)fmj_stretch_buffer_get_(&allocator_tables.command_lists,index);
+            u64 index_ = *((u64*)ca->used_list_indexes.fixed.base + i);
+            D12CommandListEntry* cle = (D12CommandListEntry*)fmj_stretch_buffer_get_(&allocator_tables.command_lists,index_);
             fmj_stretch_buffer_push(&temp_queue_command_list, (void*)&cle->list);
         }
         
