@@ -44,15 +44,6 @@ struct FMJEditorConsole
 f32 max_scale_factor = 10.0f;
 f32 max_scale_factor_x = 10.0f;
 
-float bezier_tangent(float t, f32 a, f32 b, f32 c, f32 d)
-{
-    f32 C1 = ( d - (3.0 * c) + (3.0 * b) - a );
-    f32 C2 = ( (3.0 * c) - (6.0 * b) + (3.0 * a) );
-    f32 C3 = ( (3.0 * b) - (3.0 * a) );
-    f32 C4 = ( a );
-    return ( ( 3.0 * C1 * t* t ) + ( 2.0 * C2 * t ) + C3 );
-}
-
 void fmj_editor_update_handle(f2* handle_p_out,f2 handle_size,f2 mp,f2 p1_with_offset,f2 p1,f2 p3)
 {
     f32 length = f2_distance(p3,p1);

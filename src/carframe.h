@@ -137,36 +137,30 @@ f3 fmj_physics_calculate_gravity(f32 mass,f3 gravity)
     return f3_mul_s(gravity_vector,(mass/mass));
 }
 
-struct AnimationCurve
+f3 fmj_physics_calculate_drag(CarFrame airframe,FMJCurves curves)
 {
-    int a;
-}typedef AnimationCurve;
+    //BEGIN DRAG
+    //TODO(Ray):Make a curve editor for saving curves to use for evaultion
+    //and fine tuning.
+    f32 coeffecient_of_drag = fmj_animation_curve_evaluate(curves,airframe.last_aoa);
 
+    //NOTE(Ray):We do not take into account  changing  areas based on rotation.
+    //cross section in relation to the vector of movement        
+    f32 area = 4.0f;
+    f32 density_of_medium = 1.1839f;
 
-f3 fmj_physics_calculate_drag(CarFrame airframe,AnimationCurve f16dc)
-{
-        //BEGIN DRAG
-        //TODO(Ray):Make a curve editor for saving curves to use for evaultion
-        //and fine tuning.
-        f32 coeffecient_of_drag = 0.2f;//f16dc.Evaluate(airframe.last_aoa);
-
-        //NOTE(Ray):We do not take into account  changing  areas based on rotation.
-        //cross section in relation to the vector of movement        
-        f32 area = 4.0f;
-        f32 density_of_medium = 1.1839f;
-
-        f32 velocity = f3_length(airframe.v);
-        f32 velocity_squared = (velocity * velocity);
-        f32 a = (coeffecient_of_drag *  area * density_of_medium) * (velocity_squared);
-        f3 b = f3_mul_s(f3_normalize(airframe.v),-1);//safe to zero            
-        f3 drag_force = f3_mul_s(b,a);
-        if (f3_length(drag_force) < 0.01f)
-        {
-            drag_force = f3_create_f(0);
-        }
-
-        return f3_div_s(drag_force,airframe.desc.mass);
+    f32 velocity = f3_length(airframe.v);
+    f32 velocity_squared = (velocity * velocity);
+    f32 a = (coeffecient_of_drag *  area * density_of_medium) * (velocity_squared);
+    f3 b = f3_mul_s(f3_normalize(airframe.v),-1);//safe to zero            
+    f3 drag_force = f3_mul_s(b,a);
+    if (f3_length(drag_force) < 0.01f)
+    {
+        drag_force = f3_create_f(0);
     }
+
+    return f3_div_s(drag_force,airframe.desc.mass);
+}
 
 f3 fmj_physics_calculate_thrust(CarFrame airframe,f3 stick_input_throttle)
 {
@@ -174,98 +168,85 @@ f3 fmj_physics_calculate_thrust(CarFrame airframe,f3 stick_input_throttle)
     return f3_div_s(a,airframe.desc.mass);
 }
 
-f3 fmj_physics_calculate_acceleration(CarFrame airframe,AnimationCurve f16lc,AnimationCurve f16rlc,AnimationCurve sa_curve,f3 stick_input_throttle)
+f3 fmj_physics_calculate_lateral_force(CarFrame cf,FMJCurves slip_angle_curve)
 {
-    f3 acceleration = f3_create_f(0);
-    //Mass check
-    if (airframe.desc.mass <= 0)
-    {
-        airframe.desc.mass = 1;
-//            Debug.LogError("CarFrame with zero mass can not exist set to 1.  Check your description!");
-    }
-        
-    if(!airframe.is_grounded)
-    {
-        acceleration = f3_add(acceleration,fmj_physics_calculate_gravity(airframe.desc.mass,f3_create(0, -9.806f, 0)));            
-    }
-
-    airframe.thrust_vector = fmj_physics_calculate_thrust(airframe, stick_input_throttle);
-    acceleration = f3_add(acceleration,airframe.thrust_vector);
-    acceleration = f3_add(acceleration,fmj_physics_calculate_drag(airframe, f16rlc));
-    //acceleration += CalculateRudderLift(airframe, f16lc);
-//    acceleration = f3_add(acceleration,fmj_physics_calculate_lateral_force(airframe, sa_curve));
-    return acceleration;
-}
-
-#if 0
-
-f3 fmj_physics_calculate_lateral_force(CarFrame cf,AnimationCurve slip_angle_curve)
-{
-    float3 evaluated_vector = float3(0);
+    f3 evaluated_vector = f3_create_f(0);
     if (cf.is_grounded)
     {
         //TireForce
         //slip angle
-        float forVel = cf.e.t.InverseTransformDirection(cf.v).normalized.z;
-        Vector3 latVector3 = cf.e.t.InverseTransformDirection(cf.v).normalized;
-        Vector3 latDirVector3 = cf.e.t.TransformDirection(new Vector3(latVector3.x, 0, 0));
-        float latVel = latVector3.x;
-        float evaluated_force = 0;
-        float slipAngle = Mathf.Atan(latVel / Mathf.Abs(forVel)) * Mathf.Rad2Deg;
-        if (float.IsNaN(slipAngle)) slipAngle = 0;
-        {
-            evaluated_force = slip_angle_curve.Evaluate(Mathf.Abs(slipAngle));
-        }
 
-        float sign = Mathf.Sign((int)slipAngle);
-        if (float.IsNaN(evaluated_force)) evaluated_force = 0;
+//        float forVel = cf.e.t.InverseTransformDirection(cf.v).normalized.z;
+        float forVel = f3_normalize(fmj_3dtrans_world_to_local_dir(&cf.e->transform,cf.v)).z;
+//        float forVel = f3_normlalize(f3_mul_s(cf.e.transform.forward,f3_length(cf.v))).z;
+//        f3 latVector3 = cf.e.t.InverseTransformDirection(cf.v).normalized;
+        f3 latVector3 = f3_normalize(fmj_3dtrans_world_to_local_dir(&cf.e->transform,cf.v));
+//                                f3 latDirVector3 = cf.e.t.TransformDirection(new float3(latVector3.x, 0, 0));                                
+//        f3 latDirVector3 = cf.e.t.TransformDirection(new float3(latVector3.x, 0, 0));
+        f3 latDirVector3 = fmj_3dtrans_local_to_world_dir(&cf.e->transform,f3_create(latVector3.x, 0, 0));                                
+        f32 latVel = latVector3.x;
+        f32 evaluated_force = 0;
+        f32 slipAngle = degrees(atan(latVel / abs(forVel)));// * Mathf.Rad2Deg;
+        if (isnan(slipAngle)) slipAngle = 0;
+
+        evaluated_force = fmj_animation_curve_evaluate(slip_angle_curve,abs(slipAngle));
+
+//        f32 sign = Mathf.Sign((int)slipAngle);
+        f32 sign = signbit(slipAngle);
+        if (isnan(evaluated_force)) evaluated_force = 0;
         if (sign == 0) sign = 1;
         float no_of_tires = 4;
-        evaluated_vector = Vector3.ProjectOnPlane(-((latDirVector3 * (evaluated_force)) * no_of_tires), cf.last_track_normal);
+
+        f3 a = f3_mul_s(f3_mul_s(f3_mul_s(latDirVector3,evaluated_force),no_of_tires),-1);
+        evaluated_vector = f3_project_on_plane(a,cf.last_track_normal);
     }
     else
     {
-        evaluated_vector = Vector3.zero;
+
+        evaluated_vector = f3_create_f(0);
     }
-    float3 lateral_force = evaluated_vector;
-    if (cf.e.t.InverseTransformDirection(cf.v).z < 1)
+
+    f3 lateral_force = evaluated_vector;
+    if (fmj_3dtrans_world_to_local_dir(&cf.e->transform,(cf.v)).z < 1)
     {
-        lateral_force = Vector3.zero;
+        lateral_force = f3_create_f(0);
     }
-    return lateral_force / cf.desc.mass;
+    return f3_div_s(lateral_force,cf.desc.mass);
 }
 
 
-public static float3 CalculateTorqueForce(float3 p_of_force, float3 force)
-    {
+f3 CalculateTorqueForce(f3 p_of_force, f3 force)
+{
         return cross(p_of_force, force);
-    }
+}
 
-    public static float3 CalculateRudderLift(CarFrame af, AnimationCurve f16lc)
-    {
-        float CI = af.last_aos;
-        CI = f16lc.Evaluate(CI);
 
-        float3 result = float3(0);
-        float velocity = af.indicated_ground_speed;
-        float velocity_squared = (velocity * velocity);
-        float dynamic_pressure = 0.5f * (air_density * velocity_squared);
-        float lift_vector = CI * af.repulsive_force_area * dynamic_pressure;
-        float3 cd = af.e.t.right;
-        float3 final_lift_vector = cd * lift_vector;
+f3 CalculateRudderLift(CarFrame* af,FMJCurves f16lc)
+{
+        f32 CI = af->last_aos;
+        CI = fmj_animation_curve_evaluate(f16lc,CI);
+
+        f3 result = f3_create_f(0);
+        f32 velocity = af->indicated_ground_speed;
+        f32 velocity_squared = (velocity * velocity);
+        f32 dynamic_pressure = 0.5f * (air_density * velocity_squared);
+        f32 lift_vector = CI * af->repulsive_force_area * dynamic_pressure;
+        f3 cd = af->e->transform.right;
+        f3 final_lift_vector = f3_mul_s(cd,lift_vector);
         //Debug.Log("ThrustVector : " + airframe.thrust_vector + "Lift vector : " + final_lift_vector);
-        af.rudder_lift_vector = result = (final_lift_vector / af.desc.mass);
+        af->rudder_lift_vector = result = f3_div_s(final_lift_vector,af->desc.mass);
         return result;
     }
 
-    public static agent_grounded_test_result GroundCast(CarFrame a, float3 p, float3 up,float distance_to_maintain)
+#if 0
+    public static agent_grounded_test_result GroundCast(CarFrame a, f3 p, f3 up,f32 distance_to_maintain)
     {
         //struct no gc
         agent_grounded_test_result result = new agent_grounded_test_result();
         //Check we are touching ground
         //NOTE(RAY):we are avoiding the for loop here for now but Dont 
         RaycastHit hit = new RaycastHit();
-        Vector3 castp = (p);// + (up * 1f);
+        f3 castp = (p);// + (up * 1f);
         bool is_hit = false;
 
         float distance_from_hit_p = float.MaxValue;
@@ -309,17 +290,17 @@ public static float3 CalculateTorqueForce(float3 p_of_force, float3 force)
         public float distance_from_hit_p;
         public bool is_hit;
         public bool is_grounded;
-        public float3 hit_p;
-        public float3 hit_n;
+        public f3 hit_p;
+        public f3 hit_n;
     }
 
-    public static void UpdateCarFrames(ref CarFrameBuffer buffer,AnimationCurve f16lc,AnimationCurve f16rlc,AnimationCurve sa_curve,float timestep,float3 stick_input_throttle)
+    public static void UpdateCarFrames(ref CarFrameBuffer buffer,AnimationCurve f16lc,AnimationCurve f16rlc,AnimationCurve sa_curve,float timestep,f3 stick_input_throttle)
     {
         //NOTE(Ray):This is verlet integration.
         for (int i = 0; i < buffer.buffer.Count; i++)
         {
             CarFrame carframe = buffer.buffer[i];
-            float3 localz = carframe.e.t.InverseTransformDirection(carframe.v);
+            f3 localz = carframe.e.t.InverseTransformDirection(carframe.v);
             float ground_speed = localz.z;
             //NOTE(Ray):If an airframe is flying backwards 0 lift something is really wrong//
             //VTOL aircraft and helo's this does not cover.
@@ -347,17 +328,17 @@ public static float3 CalculateTorqueForce(float3 p_of_force, float3 force)
                 carframe.is_grounded = false;
             }
 
-            float3 lsv = carframe.e.t.InverseTransformVector(carframe.v);
-            lsv = normalizesafe(lsv, float3(0));
+            f3 lsv = carframe.e.t.InverseTransformVector(carframe.v);
+            lsv = normalizesafe(lsv, f3(0));
 
-            float3 hsv = normalizesafe(float3(lsv.x, 0, lsv.z), float3(0));
+            f3 hsv = normalizesafe(f3(lsv.x, 0, lsv.z), f3(0));
 
-            lsv = normalizesafe(float3(0, lsv.y, lsv.z), float3(0));
-            float3 fsv = carframe.e.t.InverseTransformVector(carframe.e.t.forward);
-            float3 usv = carframe.e.t.InverseTransformVector(Vector3.up);
-            float3 rsv = carframe.e.t.InverseTransformVector(Vector3.right);
-            float angle_of_attack = Vector3.SignedAngle(lsv, fsv, Vector3.right);
-            float angle_of_slip = Vector3.SignedAngle(hsv, fsv, Vector3.up);
+            lsv = normalizesafe(f3(0, lsv.y, lsv.z), f3(0));
+            f3 fsv = carframe.e.t.InverseTransformVector(carframe.e.t.forward);
+            f3 usv = carframe.e.t.InverseTransformVector(f3.up);
+            f3 rsv = carframe.e.t.InverseTransformVector(f3.right);
+            float angle_of_attack = f3.SignedAngle(lsv, fsv, f3.right);
+            float angle_of_slip = f3.SignedAngle(hsv, fsv, f3.up);
 
             Debug.DrawRay(carframe.e.p, lsv * 10, Color.cyan);
             Debug.DrawRay(carframe.e.p, hsv * 10, Color.cyan);
@@ -365,18 +346,18 @@ public static float3 CalculateTorqueForce(float3 p_of_force, float3 force)
             carframe.last_aoa = angle_of_attack;
             carframe.last_aos = angle_of_slip;
 
-            float3 push_p_roll = float3(0, 0, 0);
-            float3 roll_dir = float3(1, 0, 0);
+            f3 push_p_roll = f3(0, 0, 0);
+            f3 roll_dir = f3(1, 0, 0);
             float turn_power = 2;
             if (Input.GetKey(KeyCode.D))
             {
                 stick_input_throttle.x = -turn_power;
-                push_p_roll = float3(0.5f, 0, 0.5f);
+                push_p_roll = f3(0.5f, 0, 0.5f);
             }
             if (Input.GetKey(KeyCode.A))
             {
                 stick_input_throttle.x = turn_power;
-                push_p_roll = float3(-0.5f, 0, 0.5f);
+                push_p_roll = f3(-0.5f, 0, 0.5f);
             }
 
             float2 screen = float2(Screen.width, Screen.height);
@@ -385,7 +366,6 @@ public static float3 CalculateTorqueForce(float3 p_of_force, float3 force)
             {
                 Debug.Log("Click detected");
             }
-
 
             if (Input.touchCount == 1
 #if !IOS 
@@ -409,7 +389,7 @@ public static float3 CalculateTorqueForce(float3 p_of_force, float3 force)
                     float screen_distance_ratio = touch_offset_x / center_x_p;
                     
                     stick_input_throttle.x = (-turn_power * screen_distance_ratio);
-                    push_p_roll = float3(0.5f, 0, 0.5f);
+                    push_p_roll = f3(0.5f, 0, 0.5f);
                 }
                 if (touch_p.x < half_screen.x)
                 {
@@ -417,7 +397,7 @@ public static float3 CalculateTorqueForce(float3 p_of_force, float3 force)
                     float touch_offset_x = abs(touch_p.x - half_screen.x);
                     float screen_distance_ratio = touch_offset_x / half_screen.x;// - 1.0f;
                     stick_input_throttle.x = (turn_power * screen_distance_ratio);
-                    push_p_roll = float3(-0.5f, 0, 0.5f);
+                    push_p_roll = f3(-0.5f, 0, 0.5f);
                 }
             }
             else if (Input.touchCount > 1 || Input.touchCount == 0)
@@ -427,13 +407,13 @@ public static float3 CalculateTorqueForce(float3 p_of_force, float3 force)
 
 
             stick_input_throttle.xy = stick_input_throttle.xy * 5.5f;
-            UpdateOrientation(ref carframe, float3(0, 1, -1), float3(0, -1, 0), -stick_input_throttle.y, push_p_roll, roll_dir, -stick_input_throttle.x);
+            UpdateOrientation(ref carframe, f3(0, 1, -1), f3(0, -1, 0), -stick_input_throttle.y, push_p_roll, roll_dir, -stick_input_throttle.x);
             //Debug.Log("aoa: " + carframe.last_aoa + "aos: " + carframe.last_aos);
             //linear forces
-            float3 Acceleration = CalculateAcceleration(carframe,f16lc,f16rlc,sa_curve, stick_input_throttle);
+            f3 Acceleration = CalculateAcceleration(carframe,f16lc,f16rlc,sa_curve, stick_input_throttle);
             carframe.e.p += timestep * (carframe.v + timestep * (Acceleration * 0.5f));
             carframe.v += timestep * Acceleration;
-            float3 NewAcceleration = CalculateAcceleration(carframe,f16lc, f16rlc,sa_curve, stick_input_throttle);
+            f3 NewAcceleration = CalculateAcceleration(carframe,f16lc, f16rlc,sa_curve, stick_input_throttle);
             carframe.v += timestep * (NewAcceleration - Acceleration) * 0.5f;
             carframe.last_accel = NewAcceleration;
             
@@ -453,17 +433,17 @@ public static float3 CalculateTorqueForce(float3 p_of_force, float3 force)
     public static float dampening = 0.2f;
     public static float sus_height = 1.0f;
 
-    public static void UpdateOrientation(ref CarFrame carframe,float3 push_p,float3 push_dir,float force,float3 push_p_roll,float3 roll_dir,float roll_force)
+    public static void UpdateOrientation(ref CarFrame carframe,f3 push_p,f3 push_dir,float force,f3 push_p_roll,f3 roll_dir,float roll_force)
     {
         if(carframe.is_grounded)
         {
-            float3 yaw_torque = CalculateTorqueForce(push_p_roll, roll_dir) * roll_force;
+            f3 yaw_torque = CalculateTorqueForce(push_p_roll, roll_dir) * roll_force;
             carframe.rb.AddRelativeTorque(yaw_torque);
-            float3 kart_forward_world = carframe.e.t.forward;
-            float3 kart_up_world = carframe.e.t.up;
+            f3 kart_forward_world = carframe.e.t.forward;
+            f3 kart_up_world = carframe.e.t.up;
             float sus_speed = 5;
-            float3 up_v = lerp(kart_up_world, carframe.last_track_normal, sus_speed * Time.deltaTime);
-            float3 projected_kart_forward = Vector3.ProjectOnPlane(kart_forward_world, up_v);
+            f3 up_v = lerp(kart_up_world, carframe.last_track_normal, sus_speed * Time.deltaTime);
+            f3 projected_kart_forward = f3.ProjectOnPlane(kart_forward_world, up_v);
             carframe.e.r = Quaternion.LookRotation(projected_kart_forward, up_v);
         }
     }
@@ -474,7 +454,7 @@ public static float3 CalculateTorqueForce(float3 p_of_force, float3 force)
         float max_angle = cf.desc.maximum_wheel_angle;
         float angle = max_angle * -input;
         float spin_angle = 10;
-        Quaternion speed_amount = Quaternion.AngleAxis(cf.current_spin_angle, float3(1, 0, 0)); ;
+        Quaternion speed_amount = Quaternion.AngleAxis(cf.current_spin_angle, f3(1, 0, 0)); ;
         Quaternion steering_amount = Quaternion.AngleAxis(angle, cf.e.t.up);
         cf.current_spin_angle += cf.indicated_ground_speed;
         for (int w = 0; w < 4; w++)
@@ -482,7 +462,7 @@ public static float3 CalculateTorqueForce(float3 p_of_force, float3 force)
             Transform t = cf.wheel_transforms[w];
             float distance_to_maintain_from_ground = 0.05f;
 
-            float3 cast_p = float3(0);
+            f3 cast_p = f3(0);
             //tire cast p
             float half_body_lenth_forward = 2.6f;
             float half_body_lenght_rear = 3.2f;
@@ -518,19 +498,19 @@ public static float3 CalculateTorqueForce(float3 p_of_force, float3 force)
 
             if (grounded_result.is_hit)
             {
-                float3 hit_p = grounded_result.hit_p;
+                f3 hit_p = grounded_result.hit_p;
                 float d = distance(t.position, hit_p);
                 float penetration_distance = (sus_height - 0.01f) - d;
-                //t.position = float3(t.position.x, (t.position.y + penetration_distance),t.position.z);
+                //t.position = f3(t.position.x, (t.position.y + penetration_distance),t.position.z);
 
                 //t.position = hit_p;
                 float half_wheel_radius = 0.70f;
-                t.position = hit_p + float3(0, half_wheel_radius, 0);
+                t.position = hit_p + f3(0, half_wheel_radius, 0);
             }
             else
             {
              //Max length of spring from rest 
-                //t.position = float3(t.position.x, (t.position.y + penetration_distance),t.position.z);
+                //t.position = f3(t.position.x, (t.position.y + penetration_distance),t.position.z);
             }
             Quaternion nr = cf.e.t.rotation;
             if (w == 0 || w == 1)
@@ -547,6 +527,30 @@ public static float3 CalculateTorqueForce(float3 p_of_force, float3 force)
     }
 
 #endif
+
+f3 fmj_physics_calculate_acceleration(CarFrame airframe,FMJCurves f16lc,FMJCurves f16rlc,FMJCurves sa_curve,f3 stick_input_throttle)
+{
+    f3 acceleration = f3_create_f(0);
+    //Mass check
+    if (airframe.desc.mass <= 0)
+    {
+        airframe.desc.mass = 1;
+//        fmj_editor_console_add_entry("CarFrame with zero mass can not exist set to 1.  Check your description!");
+//            Debug.LogError("CarFrame with zero mass can not exist set to 1.  Check your description!");
+    }
+        
+    if(!airframe.is_grounded)
+    {
+        acceleration = f3_add(acceleration,fmj_physics_calculate_gravity(airframe.desc.mass,f3_create(0, -9.806f, 0)));            
+    }
+
+    airframe.thrust_vector = fmj_physics_calculate_thrust(airframe, stick_input_throttle);
+    acceleration = f3_add(acceleration,airframe.thrust_vector);
+    acceleration = f3_add(acceleration,fmj_physics_calculate_drag(airframe, f16rlc));
+    //acceleration += CalculateRudderLift(airframe, f16lc);
+    acceleration = f3_add(acceleration,fmj_physics_calculate_lateral_force(airframe, sa_curve));
+    return acceleration;
+}
 
 
 

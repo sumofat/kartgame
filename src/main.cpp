@@ -64,12 +64,13 @@ struct FMJAssetContext
 #include "animation.h"
 
 #include "editor.h"
+#include "editor_scene_objects.h"
+
 //Game files
 #include "carframe.h"
 //End game files
 
 //BEGIN FMJSCENE TEST
-
 
 FMJSceneBuffer scenes;
 FMJStretchBuffer render_command_buffer;
@@ -536,7 +537,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     u64 scene_id = CreateEmptyScene(&scenes);
     FMJScene* test_scene = fmj_stretch_buffer_check_out(FMJScene,&scenes.buffer,scene_id);
 
-    u64 root_node_id = AddSceneObject(&asset_ctx,&test_scene->buffer,f3_create_f(0),quaternion_identity(),f3_create_f(1));
+    FMJString object_name = fmj_string_create("Root Node",asset_ctx.perm_mem);
+    u64 root_node_id = AddSceneObject(&asset_ctx,&test_scene->buffer,f3_create_f(0),quaternion_identity(),f3_create_f(1),object_name);
     FMJSceneObject* root_node = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,root_node_id);
     fmj_scene_object_buffer_init(&root_node->children);
     FMJ3DTrans root_t;
@@ -585,7 +587,9 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     duck_trans.p = f3_create(0,8,0);
     
     FMJSceneObject* track_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,track_instance_id);
+    track_so->name = fmj_string_create("track so",asset_ctx.perm_mem);
     FMJSceneObject* kart_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,kart_instance_id);
+    kart_so->name = fmj_string_create("kart so",asset_ctx.perm_mem);
     
     u64 mesh_id;
     u64 kart_mesh_id;
@@ -626,6 +630,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     fmj_asset_upload_meshes(&asset_ctx,f2_create(tcm_id,tcm_id));
 
     FMJSceneObject track_physics_so_ = {};
+    track_physics_so_.name = fmj_string_create("Track Physics",asset_ctx.perm_mem);
     track_physics_so_.transform = kart_trans;
     track_physics_so_.children.buffer = fmj_stretch_buffer_init(1,sizeof(u64),8);
     track_physics_so_.m_id = track_so->m_id;
@@ -634,9 +639,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     track_physics_so_.primitives_range = f2_create_f(tcm_id);
     
     u64 track_physics_id = fmj_stretch_buffer_push(&asset_ctx.scene_objects,&track_physics_so_);
-
     
-    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,track_physics_id,track_physics_so_.transform);
+    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,track_instance_id,track_physics_so_.transform);
 
     PhysicsShapeBox phyx_box_shape = PhysicsCode::CreateBox(f3_create(1.2f,0.2f,1.2f),physics_material);
         
@@ -701,8 +705,12 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     f32 size_sin = 0;
     game_state.current_player_id = 0;
 
-    bool show_demo_window = false;
+    bool show_demo_window = true;
     bool show_kart_editor = true;
+    bool show_editor_scene = true;
+    FMJEditorSceneTree scene_tree;
+
+    fmj_editor_scene_tree_init(&scene_tree);
     FMJEditorConsole console;
     fmj_editor_console_init(&console);
     console.is_showing = true;    
@@ -740,6 +748,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                     if (ImGui::MenuItem("SceneObjects"))
                     {
                         fmj_editor_console_add_entry(&console,"Start showing scene objects window");
+                        scene_tree.is_showing = true;
                     }
 
                     if(ImGui::MenuItem("Log"))
@@ -751,7 +760,12 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                 ImGui::EndMainMenuBar();            
             }
         }
-
+        if(scene_tree.is_showing)
+        {
+//            FMJSceneObject* start_node = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,root_node_id);                
+            fmj_editor_scene_tree_show(&scene_tree,test_scene,&asset_ctx);
+//            fmj_stretch_buffer_check_in(&asset_ctx.scene_objects);
+        }
         if(console.is_showing)
         {
             fmj_editor_console_show(&console);

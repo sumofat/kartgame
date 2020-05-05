@@ -265,8 +265,11 @@ void fmj_asset_load_meshes_recursively_gltf_node_(FMJAssetModelLoadResult* resul
             fmj_asset_upload_meshes(ctx,mesh_range);            
         }
         void* mptr = (void*)mesh_id;
-//add node to parent        
-        u64 child_id = AddChildToSceneObject(ctx,so,&trans,&mptr);
+//add node to parent
+        //TODO(Ray):We need this not to be associated with the context perm mem.
+        //Have each sceneobject tree hold its own string meme
+        FMJString mesh_name = fmj_string_create_formatted("mesh %s",ctx->temp_mem,ctx->perm_mem,child->name);
+        u64 child_id = AddChildToSceneObject(ctx,so,&trans,&mptr,mesh_name);
         FMJSceneObject* child_so = fmj_stretch_buffer_check_out(FMJSceneObject,&ctx->scene_objects,child_id);
         child_so->type = type;
         child_so->primitives_range = mesh_range;
@@ -349,7 +352,8 @@ FMJAssetModelLoadResult fmj_asset_load_model_from_glb_2(FMJAssetContext* ctx,con
                 }
 
                 void* mptr = (void*)mesh_id;
-                u64 child_id = AddChildToSceneObject(ctx,model_root,&trans,&mptr);
+                FMJString mesh_name = fmj_string_create_formatted("mesh %s",ctx->temp_mem,ctx->perm_mem,root_node->name);                
+                u64 child_id = AddChildToSceneObject(ctx,model_root,&trans,&mptr,mesh_name);
                 FMJSceneObject* child_so = fmj_stretch_buffer_check_out(FMJSceneObject,&ctx->scene_objects,child_id);
                 child_so->type = type;
                 child_so->primitives_range = mesh_range;
