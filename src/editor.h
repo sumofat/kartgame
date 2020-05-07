@@ -41,8 +41,8 @@ struct FMJEditorConsole
     FMJCurves curves_output;
 };
 
-f32 max_scale_factor = 10.0f;
-f32 max_scale_factor_x = 10.0f;
+f32 max_scale_factor = 1.0f;
+f32 max_scale_factor_x = 1.0f;
 
 void fmj_editor_update_handle(f2* handle_p_out,f2 handle_size,f2 mp,f2 p1_with_offset,f2 p1,f2 p3)
 {
@@ -402,7 +402,7 @@ void fmj_editor_draw_curves(FMJEditorConsole* console,f2 grid_dim,f2 p)
     draw_list->AddNgonFilled(ImVec2(out_p.x,out_p.y),8.0f, col, 4);    
 }
 
-void fmj_editor_console_show(FMJEditorConsole* console)
+void fmj_editor_console_show(FMJEditorConsole* console,FMJAssetContext* asset_ctx)
 {
     ImGui::SetNextWindowSize(ImVec2(520,600), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("KartLog", &console->is_showing))
@@ -615,19 +615,21 @@ void fmj_editor_console_show(FMJEditorConsole* console)
      
      f2 extra_size = f2_create_f(100);
      ImGui::InvisibleButton("spacing",ImVec2(extra_size.x,extra_size.y));
-     f2 min_max_scale = f2_create(1.0f,100.f);
+     f2 min_max_scale = f2_create(1.0f,10000.f);
      
      ImGui::SliderFloat("scale_x",&max_scale_factor_x,min_max_scale.x, min_max_scale.y);          
      ImGui::SliderFloat("scale_y",&max_scale_factor,min_max_scale.x,min_max_scale.y);
      
-     ImGui::SliderFloat("test_x",&console->test_x,0,max_scale_factor_x);     
+     ImGui::SliderFloat("test_x",&console->test_x,0,min_max_scale.y);     
 
-     ImGui::SliderFloat("pos_x",&console->grid_pos.x,-max_scale_factor_x,max_scale_factor_x);
-     ImGui::SliderFloat("pos_y",&console->grid_pos.y,-max_scale_factor,max_scale_factor);
-     
+     ImGui::SliderFloat("pos_x",&console->grid_pos.x,-min_max_scale.y,min_max_scale.y);
+     ImGui::SliderFloat("pos_y",&console->grid_pos.y,-min_max_scale.y,min_max_scale.y);
+
+     static char name[32] = "File Name";
+     char buf[64]; sprintf(buf, "%s", name); // ### operator override ID ignoring the preceding label
+     ImGui::InputText("File Name", name, IM_ARRAYSIZE(name));     
      if(ImGui::Button("Save"))
      {
-
          f2 offset = f2_mul(console->grid_pos,grid_dim);
          offset = f2_create(offset.x,-offset.y);
          //teste evaluate
@@ -668,6 +670,7 @@ void fmj_editor_console_show(FMJEditorConsole* console)
          }
 
          fmj_stretch_buffer_clear(&console->curves_output.buffer);
+         
          for(int ci = 0;ci < console->points.fixed.count;++ci)
          {
              FMJBezierCubicCurve curve = fmj_stretch_buffer_get(FMJBezierCubicCurve,&console->points,ci);
@@ -692,8 +695,8 @@ void fmj_editor_console_show(FMJEditorConsole* console)
              p2.y = newcurve.points[3].y = (curve.min_max_range.y - p2.y) / curve.min_max_range.y;
 
              newcurve.handle_a.x = h1.x / curve.min_max_range.y;
-             newcurve.handle_a.y = h1.y / curve.min_max_range.y;
-
+             newcurve.handle_a.y = (curve.min_max_range.y - h1.y) / curve.min_max_range.y;
+             
              newcurve.handle_b.x = h2.x / curve.min_max_range.y;
              newcurve.handle_b.y = (curve.min_max_range.y - h2.y) / curve.min_max_range.y;
 
@@ -701,15 +704,102 @@ void fmj_editor_console_show(FMJEditorConsole* console)
              
              fmj_stretch_buffer_push(&console->curves_output.buffer,&newcurve);
          }
+
          FMJFilePointer file = {};
-         char* file_name = "curve1";
-         fmj_file_platform_write_memory(&file,file_name,&console->curves_output,sizeof(console->curves_output),true,"wb");
-         
+         char* file_name = name;//"curve1.crv";
+         FMJString file_name_with_ext = fmj_string_append_char_to_char(name,".crv", &console->scratch_mem);
+         fmj_file_platform_write_memory(&file,file_name_with_ext.string,&console->curves_output.buffer,sizeof(FMJStretchBuffer),false,"wb");
+         fmj_file_platform_write_memory(&file,nullptr,console->curves_output.buffer.fixed.mem_arena.base,console->curves_output.buffer.fixed.mem_arena.size,true,"wb");
      }
 
+     FMJFileDirInfoResult all_files = fmj_file_platform_get_all_files_in_dir("../Build",&console->scratch_mem);
+
+     static ImGuiComboFlags flags = 0;
+     static const char* item_current = "none";//items[0];            // Here our selection is a single pointer stored outside the object.
+     if (ImGui::BeginCombo("Choose Curve", item_current, flags)) // The second parameter is the label previewed before opening the combo.
+     {
+         for(int i = 0;i < all_files.files.count;++i)
+//         for (int n = 0; n < IM_ARRAYSIZE(items); n++)
+         {
+             FMJFileInfo* info = fmj_fixed_buffer_get_ptr(FMJFileInfo,&all_files.files,i);
+             bool is_selected = (item_current == info->name.string);
+
+//             if (ImGui::Selectable(items[n], is_selected))
+             if (ImGui::Selectable(info->name.string, is_selected))             
+             {
+                 item_current = info->name.string;//items[n];
+                 FMJString ext = fmj_string_get_extension(fmj_string_create((char*)item_current,&console->scratch_mem),&console->scratch_mem,false);
+                 if(fmj_string_cmp_char(ext,"crv"))
+                 {
+                     FMJFileReadResult result = fmj_file_platform_read_entire_file(info->name.string);
+                     FMJStretchBuffer* curves = (FMJStretchBuffer*)result.content;
+                     void* source = (u8*)result.content + sizeof(FMJStretchBuffer);
+                     u64 memsize = curves->fixed.mem_arena.size;
+                     u64 used = curves->fixed.mem_arena.used;
+                     curves->fixed.mem_arena = fmj_arena_allocate(memsize);
+                     void* dest = curves->fixed.mem_arena.base;                     
+                     fmj_memory_copy(dest,source,memsize);
+
+                     curves->fixed.mem_arena.used = used;
+                     curves->fixed.base = curves->fixed.mem_arena.base;                     
+                     ASSERT(result.content_size > 0);
+                     console->points = *curves;
+
+                     for(int ci = 0;ci < console->points.fixed.count;++ci)
+                     {
+                         FMJBezierCubicCurve* curve = fmj_stretch_buffer_check_out(FMJBezierCubicCurve,&console->points,ci);
+                         f2 p1 = curve->points[0];
+                         f2 p2 = curve->points[3];
+                         f2 c1 = curve->points[1];
+                         f2 c2 = curve->points[2];
+                         f2 h1 = curve->handle_a;
+                         f2 h2 = curve->handle_b;
+                 
+                         FMJBezierCubicCurve newcurve = {};
+                         p1.x = newcurve.points[0].x = p1.x * curve->min_max_range.y;
+                         p1.y = newcurve.points[0].y = curve->min_max_range.y - (p1.y * curve->min_max_range.y);
+                         
+                         c1.x = newcurve.points[1].x = c1.x * curve->min_max_range.y;
+                         c1.y = newcurve.points[1].y = curve->min_max_range.y - (c1.y * curve->min_max_range.y);
+                         
+
+                         c2.x = newcurve.points[2].x = c2.x * curve->min_max_range.y;
+                         c2.y = newcurve.points[2].y = curve->min_max_range.y - (c2.y * curve->min_max_range.y);
+                         
+                         p2.x = newcurve.points[3].x = p2.x * curve->min_max_range.y;
+                         p2.y = newcurve.points[3].y = curve->min_max_range.y - (p2.y * curve->min_max_range.y);
+                         
+
+                         newcurve.handle_a.x = h1.x * curve->min_max_range.y;
+                         newcurve.handle_a.y = curve->min_max_range.y - (h1.y * curve->min_max_range.y);
+                       
+                         newcurve.handle_b.x = h2.x * curve->min_max_range.y;
+                         newcurve.handle_b.y = curve->min_max_range.y - (h2.y * curve->min_max_range.y);
+                         
+
+                         newcurve.min_max_range = curve->min_max_range;
+                         
+                         *curve = newcurve;
+                         fmj_stretch_buffer_check_in(&console->points);             
+                     }
+
+                     fmj_file_free_result(&result);
+                 }                 
+             }
+
+             if (is_selected)
+             {
+                 ImGui::SetItemDefaultFocus();   // Set the initial focus when opening the combo (scrolling + for keyboard navigation support in the upcoming navigation branch)
+
+             }
+         }
+         ImGui::EndCombo();
+     }
+     
      console->prev_mp = console->mp;
      ImGui::End();
      fmj_arena_deallocate(&console->scratch_mem,false);
+
 }
 
 #define EDITOR_H

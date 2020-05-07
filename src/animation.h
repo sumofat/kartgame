@@ -3,6 +3,14 @@
 struct FMJCurve
 {
     f2 points[4];
+//This info is store only for conviencence
+    //TODO(Ray):if the need arises we should compact these down to just tangents
+    //we dont need all this extra data only here for easy import export to curve editor.
+    f2 min_max;
+    f2 min_max_range;
+
+    f2 handle_a;
+    f2 handle_b;
 };
 
 struct FMJCurves

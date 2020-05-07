@@ -1,3 +1,4 @@
+#include "physics.h"
 
 struct CarFrameBuffer
 {
@@ -12,7 +13,7 @@ struct CarFrameDescriptorBuffer
 
 enum CarFrameType
 {
-    none,
+    car_frame_type_none,
 }typedef CarFrameType;
 
 struct CarFrameDescriptor
@@ -24,8 +25,9 @@ struct CarFrameDescriptor
     f32 max_thrust;
     f32 maximum_wheel_angle;
     int wheel_count;
-}typedef CarFrameDescriptor;
 
+}typedef CarFrameDescriptor;
+ 
 struct CarFrame
 {
     FMJSceneObject* e;
@@ -40,7 +42,7 @@ struct CarFrame
     f32 inertia;//typically a 3x3 matrice but we are simpliflying to a cube for now.
     f32 inverse_inertia;
 
-    //Rigidbody rb;
+    RigidBody rb;
 
     f3 total_lift;
     f3 last_v;
@@ -66,6 +68,18 @@ struct CarFrame
     
     f32 current_spin_angle = 0;
 }typedef CarFrame;
+
+struct AgentGroundedTestResult
+{
+    f32 distance_from_hit_p;
+    bool is_hit;
+    bool is_grounded;
+    f3 hit_p;
+    f3 hit_n;    
+}typedef AgentGroundedTestResult;
+
+float dampening = 0.2f;
+float sus_height = 1.0f;
 
 void kart_init_car_frames(CarFrameBuffer* buffer,CarFrameDescriptorBuffer buffer_desc,int count)
 {
@@ -215,92 +229,111 @@ f3 fmj_physics_calculate_lateral_force(CarFrame cf,FMJCurves slip_angle_curve)
 }
 
 
-f3 CalculateTorqueForce(f3 p_of_force, f3 force)
-{
-        return cross(p_of_force, force);
-}
-
 
 f3 CalculateRudderLift(CarFrame* af,FMJCurves f16lc)
 {
-        f32 CI = af->last_aos;
-        CI = fmj_animation_curve_evaluate(f16lc,CI);
+    f32 CI = af->last_aos;
+    CI = fmj_animation_curve_evaluate(f16lc,CI);
 
-        f3 result = f3_create_f(0);
-        f32 velocity = af->indicated_ground_speed;
-        f32 velocity_squared = (velocity * velocity);
-        f32 dynamic_pressure = 0.5f * (air_density * velocity_squared);
-        f32 lift_vector = CI * af->repulsive_force_area * dynamic_pressure;
-        f3 cd = af->e->transform.right;
-        f3 final_lift_vector = f3_mul_s(cd,lift_vector);
-        //Debug.Log("ThrustVector : " + airframe.thrust_vector + "Lift vector : " + final_lift_vector);
-        af->rudder_lift_vector = result = f3_div_s(final_lift_vector,af->desc.mass);
-        return result;
-    }
+    f3 result = f3_create_f(0);
+    f32 velocity = af->indicated_ground_speed;
+    f32 velocity_squared = (velocity * velocity);
+    f32 dynamic_pressure = 0.5f * (air_density * velocity_squared);
+    f32 lift_vector = CI * af->repulsive_force_area * dynamic_pressure;
+    f3 cd = af->e->transform.right;
+    f3 final_lift_vector = f3_mul_s(cd,lift_vector);
+    //Debug.Log("ThrustVector : " + airframe.thrust_vector + "Lift vector : " + final_lift_vector);
+    af->rudder_lift_vector = result = f3_div_s(final_lift_vector,af->desc.mass);
+    return result;
+}
 
-#if 0
-    public static agent_grounded_test_result GroundCast(CarFrame a, f3 p, f3 up,f32 distance_to_maintain)
-    {
-        //struct no gc
-        agent_grounded_test_result result = new agent_grounded_test_result();
-        //Check we are touching ground
-        //NOTE(RAY):we are avoiding the for loop here for now but Dont 
-        RaycastHit hit = new RaycastHit();
-        f3 castp = (p);// + (up * 1f);
-        bool is_hit = false;
+f3 CalculateTorqueForce(f3 p_of_force, f3 force)
+{
+    return cross(p_of_force, force);
+}
 
-        float distance_from_hit_p = float.MaxValue;
-        //float ray_length = distance_to_maintain + 0.1f;//1.1f;
-        float ray_length = 1.1f;
-        //int mask = LayerMask.GetMask("ground");
-        //int ground_layer_mask = mask;
-        int max_results = 10;
-        Debug.DrawRay(castp, -up * ray_length, Color.white);
-
-        RaycastHit[] hit_results = new RaycastHit[max_results];
-        int result_count = Physics.RaycastNonAlloc(castp, -up, hit_results, ray_length);
-        if (result_count > 0)
+void UpdateOrientation(CarFrame* carframe,f3 push_p,f3 push_dir,float force,f3 push_p_roll,f3 roll_dir,float roll_force,f32 delta_time)
+{
+    ASSERT(carframe)
+        if(carframe->is_grounded)
         {
-            float closest_d = float.MaxValue;
-            for (int i = 0; i < result_count; ++i)
-            {
-                RaycastHit rh = hit_results[i];
-                if (rh.distance < closest_d)
-                {
-                    closest_d = rh.distance;
-                    hit = rh;
-                }
-            }
+            f3 yaw_torque = f3_mul_s(CalculateTorqueForce(push_p_roll, roll_dir),roll_force);
 
-            result.distance_from_hit_p = hit.distance;
-            result.hit_p = hit.point;
-            result.hit_n = hit.normal;
-            result.is_hit = true;
-            if (result.distance_from_hit_p < a.sus_height)
-            {
-                result.is_grounded = true;
-            }
+//            carframe.rb.AddRelativeTorque(yaw_torque);
+//            yaw_torque = fmj_3dtrans_world_to_local_dir(&carframe->e->transform,yaw_torque);            
+            PhysicsCode::AddRelativeTorqueForce(carframe->rb,&carframe->e->transform,yaw_torque);
+
+                f3 kart_forward_world = carframe->e->transform.forward;
+            f3 kart_up_world = carframe->e->transform.up;
+            float sus_speed = 5;
+            f3 up_v = f3_lerp(kart_up_world, carframe->last_track_normal, f3_create_f(sus_speed * delta_time));
+            f3 projected_kart_forward = f3_project_on_plane(kart_forward_world, up_v);
+            carframe->e->transform.r = quaternion_look_rotation(projected_kart_forward, up_v);
         }
+}
 
-        return result;
-    }
+#define FMJ_PHYSICS_RAYCAST_MAX_RESULT 10
+AgentGroundedTestResult GroundCast(PhysicsScene scene,CarFrame a, f3 p, f3 up,f32 distance_to_maintain)
+{
+    AgentGroundedTestResult result = {};
+    f3 castp = (p);
+    bool is_hit = false;
 
-    public struct agent_grounded_test_result
+    float distance_from_hit_p = FLT_MAX;
+    float ray_length = 1.1f;
+    int max_results = 10;
+    PxRaycastBuffer hit;
+    f3 neg_up = f3_negate(up);
+    PxVec3 pp = {p.x,p.y,p.z};
+    PxVec3 upp = {neg_up.x,neg_up.y,neg_up.z};
+    bool status = scene.state->raycast(pp,upp,ray_length,hit);        
+    if (status && hit.hasBlock && hit.block.shape != NULL)
     {
-        public float distance_from_hit_p;
-        public bool is_hit;
-        public bool is_grounded;
-        public f3 hit_p;
-        public f3 hit_n;
+        result.distance_from_hit_p = hit.block.distance;
+        result.hit_p = f3_create(hit.block.position.x, hit.block.position.y, hit.block.position.z);
+        result.hit_n = f3_create(hit.block.normal.x, hit.block.normal.y, hit.block.normal.z);
+        result.is_hit = true;
+        if (result.distance_from_hit_p < a.sus_height)
+        {
+            result.is_grounded = true;
+        }
+    }
+    return result;
+}
+
+
+f3 fmj_physics_calculate_acceleration(CarFrame airframe,FMJCurves f16lc,FMJCurves f16rlc,FMJCurves sa_curve,f3 stick_input_throttle)
+{
+    f3 acceleration = f3_create_f(0);
+    //Mass check
+    if (airframe.desc.mass <= 0)
+    {
+        airframe.desc.mass = 1;
+//        fmj_editor_console_add_entry("CarFrame with zero mass can not exist set to 1.  Check your description!");
+//            Debug.LogError("CarFrame with zero mass can not exist set to 1.  Check your description!");
+    }
+        
+    if(!airframe.is_grounded)
+    {
+        acceleration = f3_add(acceleration,fmj_physics_calculate_gravity(airframe.desc.mass,f3_create(0, -9.806f, 0)));            
     }
 
-    public static void UpdateCarFrames(ref CarFrameBuffer buffer,AnimationCurve f16lc,AnimationCurve f16rlc,AnimationCurve sa_curve,float timestep,f3 stick_input_throttle)
+    airframe.thrust_vector = fmj_physics_calculate_thrust(airframe, stick_input_throttle);
+    acceleration = f3_add(acceleration,airframe.thrust_vector);
+    acceleration = f3_add(acceleration,fmj_physics_calculate_drag(airframe, f16rlc));
+    //acceleration += CalculateRudderLift(airframe, f16lc);
+    acceleration = f3_add(acceleration,fmj_physics_calculate_lateral_force(airframe, sa_curve));
+    return acceleration;
+}
+
+void UpdateCarFrames(PlatformState* ps,CarFrameBuffer* buffer,FMJCurves f16lc,FMJCurves f16rlc,FMJCurves sa_curve,float timestep,f3 stick_input_throttle,PhysicsScene pscene)
     {
         //NOTE(Ray):This is verlet integration.
-        for (int i = 0; i < buffer.buffer.Count; i++)
+        for (int i = 0; i < buffer->car_frames.fixed.count; i++)
         {
-            CarFrame carframe = buffer.buffer[i];
-            f3 localz = carframe.e.t.InverseTransformDirection(carframe.v);
+            CarFrame* carframe = fmj_stretch_buffer_check_out(CarFrame,&buffer->car_frames,i);
+//            f3 localz = carframe.e.t.InverseTransformDirection(carframe.v);
+            f3 localz = fmj_3dtrans_world_to_local_dir(&carframe->e->transform,carframe->v);
             float ground_speed = localz.z;
             //NOTE(Ray):If an airframe is flying backwards 0 lift something is really wrong//
             //VTOL aircraft and helo's this does not cover.
@@ -308,145 +341,148 @@ f3 CalculateRudderLift(CarFrame* af,FMJCurves f16lc)
             {
                 ground_speed = 0;
             }
-            carframe.indicated_ground_speed = ground_speed;
-            float distance_to_maintain_from_ground = 0.05f;
+            carframe->indicated_ground_speed = ground_speed;
+            f32 distance_to_maintain_from_ground = 0.05f;
 
-            agent_grounded_test_result grounded_result = GroundCast(carframe, carframe.e.p, carframe.e.t.up, distance_to_maintain_from_ground);
+            AgentGroundedTestResult grounded_result = GroundCast(pscene,*carframe, carframe->e->transform.p, carframe->e->transform.up, distance_to_maintain_from_ground);
 
             if (grounded_result.is_hit)
             {
-                carframe.is_grounded = true;
-                carframe.last_track_normal = grounded_result.hit_n;
+                carframe->is_grounded = true;
+                carframe->last_track_normal = grounded_result.hit_n;
 
-                carframe.last_hit_p = grounded_result.hit_p;
-                float d = distance(carframe.e.p, carframe.last_hit_p);
-                float penetration_distance = (sus_height - 0.01f) - d;
-                carframe.e.p.y = (carframe.e.p.y + penetration_distance);
+                carframe->last_hit_p = grounded_result.hit_p;
+                f32 d = f3_distance(carframe->e->transform.p, carframe->last_hit_p);
+                f32 penetration_distance = (sus_height - 0.01f) - d;
+                carframe->e->transform.p.y = (carframe->e->transform.p.y + penetration_distance);
             }
             else
             {
-                carframe.is_grounded = false;
+                carframe->is_grounded = false;
             }
 
-            f3 lsv = carframe.e.t.InverseTransformVector(carframe.v);
-            lsv = normalizesafe(lsv, f3(0));
+//            f3 lsv = carframe->e.t.InverseTransformVector(carframe.v);
+            f3 lsv = fmj_3dtrans_world_to_local_dir(&carframe->e->transform,carframe->v);            
+//            lsv = nornormalizesafe(lsv, f3(0));
+            lsv = f3_normalize(lsv);
+            
+//            f3 hsv = normalizesafe(f3(lsv.x, 0, lsv.z), f3(0));
+            f3 hsv = f3_normalize(f3_create(lsv.x, 0, lsv.z));
+    
+//            lsv = normalizesafe(f3(0, lsv.y, lsv.z), f3(0));
+            lsv = f3_normalize(f3_create(0, lsv.y, lsv.z));
+            
+//            f3 fsv = carframe->e.t.InverseTransformVector(carframe->e.t.forward);
+            f3 fsv =  carframe->e->transform.forward;
+//            f3 usv = carframe->e.t.InverseTransformVector(f3.up);
+            f3 usv = carframe->e->transform.up;
+//            f3 rsv = carframe->e.t.InverseTransformVector(f3.right);
+            f3 rsv = carframe->e->transform.right;
+            
+//            float angle_of_attack = f3.SignedAngle(lsv, fsv, f3.right);
+//            float angle_of_slip = f3.SignedAngle(hsv, fsv, f3.up);
+            float angle_of_attack = f3_signed_angle(lsv, fsv, f3_create(1,0,0));
+            float angle_of_slip = f3_signed_angle(hsv, fsv, f3_create(0,1,0));
+            
+            //Debug.DrawRay(carframe->e.p, lsv * 10, Color.cyan);
+//            Debug.DrawRay(carframe->e.p, hsv * 10, Color.cyan);
 
-            f3 hsv = normalizesafe(f3(lsv.x, 0, lsv.z), f3(0));
+            carframe->last_aoa = angle_of_attack;
+            carframe->last_aos = angle_of_slip;
 
-            lsv = normalizesafe(f3(0, lsv.y, lsv.z), f3(0));
-            f3 fsv = carframe.e.t.InverseTransformVector(carframe.e.t.forward);
-            f3 usv = carframe.e.t.InverseTransformVector(f3.up);
-            f3 rsv = carframe.e.t.InverseTransformVector(f3.right);
-            float angle_of_attack = f3.SignedAngle(lsv, fsv, f3.right);
-            float angle_of_slip = f3.SignedAngle(hsv, fsv, f3.up);
-
-            Debug.DrawRay(carframe.e.p, lsv * 10, Color.cyan);
-            Debug.DrawRay(carframe.e.p, hsv * 10, Color.cyan);
-
-            carframe.last_aoa = angle_of_attack;
-            carframe.last_aos = angle_of_slip;
-
-            f3 push_p_roll = f3(0, 0, 0);
-            f3 roll_dir = f3(1, 0, 0);
+            f3 push_p_roll = f3_create(0, 0, 0);
+            f3 roll_dir = f3_create(1, 0, 0);
             float turn_power = 2;
-            if (Input.GetKey(KeyCode.D))
+
+            if(ps->input.keyboard.keys[keys.d].down)
+//            if (Input.GetKey(KeyCode.D))
             {
                 stick_input_throttle.x = -turn_power;
-                push_p_roll = f3(0.5f, 0, 0.5f);
+                push_p_roll = f3_create(0.5f, 0, 0.5f);
             }
-            if (Input.GetKey(KeyCode.A))
+
+            if(ps->input.keyboard.keys[keys.a].down)
+//            if (Input.GetKey(KeyCode.A))
             {
                 stick_input_throttle.x = turn_power;
-                push_p_roll = f3(-0.5f, 0, 0.5f);
+                push_p_roll = f3_create(-0.5f, 0, 0.5f);
             }
 
-            float2 screen = float2(Screen.width, Screen.height);
-            float2 half_screen = screen * 0.5f;
-            if (Input.GetMouseButton(0))
+            f2 screen = f2_create(ps->window.dim.x, ps->window.dim.y);
+            f2 half_screen = f2_mul_s(screen,0.5f);
+            
+
+            if(ps->input.mouse.lmb.released)
+//            if (Input.GetMouseButton(0))
             {
-                Debug.Log("Click detected");
+//                Debug.Log("Click detected");
             }
 
-            if (Input.touchCount == 1
-#if !IOS 
-                || Input.GetMouseButton(0) 
-#endif
-                )
+            if(ps->input.mouse.lmb.down)
+//            if(Input.GetMouseButton(0))
             {
-                float2 touch_p;
-#if IOS
-                Touch touch = Input.GetTouch(0);
-                touch_p = touch.position;
-#else
-                touch_p = float2( Input.mousePosition.x,Input.mousePosition.y);
-#endif
-
+                f2 touch_p;
+                touch_p = f2_create(ps->input.mouse.p.x,ps->input.mouse.p.y);
                 if (touch_p.x > half_screen.x)
                 {
                     //Go right
-                    float center_x_p = screen.x - half_screen.x;
-                    float touch_offset_x = touch_p.x - half_screen.x;
-                    float screen_distance_ratio = touch_offset_x / center_x_p;
+                    f32 center_x_p = screen.x - half_screen.x;
+                    f32 touch_offset_x = touch_p.x - half_screen.x;
+                    f32 screen_distance_ratio = touch_offset_x / center_x_p;
                     
                     stick_input_throttle.x = (-turn_power * screen_distance_ratio);
-                    push_p_roll = f3(0.5f, 0, 0.5f);
+                    push_p_roll = f3_create(0.5f, 0, 0.5f);
                 }
                 if (touch_p.x < half_screen.x)
                 {
                     //Go left
-                    float touch_offset_x = abs(touch_p.x - half_screen.x);
-                    float screen_distance_ratio = touch_offset_x / half_screen.x;// - 1.0f;
+                    f32 touch_offset_x = abs(touch_p.x - half_screen.x);
+                    f32 screen_distance_ratio = touch_offset_x / half_screen.x;// - 1.0f;
                     stick_input_throttle.x = (turn_power * screen_distance_ratio);
-                    push_p_roll = f3(-0.5f, 0, 0.5f);
+                    push_p_roll = f3_create(-0.5f, 0, 0.5f);
                 }
             }
-            else if (Input.touchCount > 1 || Input.touchCount == 0)
+//            else if (ps->input.touchCount > 1 || Input.touchCount == 0)
             {
                 // Go straight
             }
 
+            
+            stick_input_throttle = f3_mul_s(stick_input_throttle,5.5f);
 
-            stick_input_throttle.xy = stick_input_throttle.xy * 5.5f;
-            UpdateOrientation(ref carframe, f3(0, 1, -1), f3(0, -1, 0), -stick_input_throttle.y, push_p_roll, roll_dir, -stick_input_throttle.x);
-            //Debug.Log("aoa: " + carframe.last_aoa + "aos: " + carframe.last_aos);
+
+
+//            UpdateOrientation(carframe,push_p,f3 push_dir,float force,f3 push_p_roll,f3 roll_dir,float roll_force,f32 delta_time)            
+            UpdateOrientation(carframe,f3_create(0, 1, -1),f3_create(0, -1, 0),-stick_input_throttle.y,push_p_roll,roll_dir,-stick_input_throttle.x,ps->time.delta_seconds);
+
+
+
+//Debug.Log("aoa: " + carframe.last_aoa + "aos: " + carframe.last_aos);
             //linear forces
-            f3 Acceleration = CalculateAcceleration(carframe,f16lc,f16rlc,sa_curve, stick_input_throttle);
-            carframe.e.p += timestep * (carframe.v + timestep * (Acceleration * 0.5f));
-            carframe.v += timestep * Acceleration;
-            f3 NewAcceleration = CalculateAcceleration(carframe,f16lc, f16rlc,sa_curve, stick_input_throttle);
-            carframe.v += timestep * (NewAcceleration - Acceleration) * 0.5f;
-            carframe.last_accel = NewAcceleration;
+
+            f3 Acceleration = fmj_physics_calculate_acceleration(*carframe,f16lc,f16rlc,sa_curve, stick_input_throttle);
+    
+//            f3 Acceleration = CalculateAcceleration(carframe,f16lc,f16rlc,sa_curve, stick_input_throttle);
+            carframe->e->transform.p = f3_add(carframe->e->transform.p,f3_mul(f3_s_mul(timestep,f3_add_s(carframe->v,timestep)),f3_mul_s(Acceleration,0.5f)));
+            carframe->v = f3_add(carframe->v,f3_s_mul(timestep,Acceleration));
+            f3 NewAcceleration = fmj_physics_calculate_acceleration(*carframe,f16lc, f16rlc,sa_curve, stick_input_throttle);
+            carframe->v = f3_add(carframe->v,f3_mul_s(f3_s_mul(timestep,f3_sub(NewAcceleration,Acceleration)),0.5f));
+            carframe->last_accel = NewAcceleration;
             
             //Update visual only elements
-            UpdateWheelOrientationPosition(carframe,stick_input_throttle.x);
+//            UpdateWheelOrientationPosition(carframe,stick_input_throttle.x);
 
-            Debug.DrawRay(carframe.e.p, normalize(carframe.lift_vector) * 5, Color.red);
-            Debug.DrawRay(carframe.e.p, normalize(carframe.rudder_lift_vector) * 5, Color.yellow);
-            Debug.DrawRay(carframe.e.p, normalize(carframe.thrust_vector) * 5, Color.green);
-            Debug.DrawRay(carframe.e.p, normalize(carframe.v) * 5, Color.black);
+//            Debug.DrawRay(carframe->e.p, normalize(carframe.lift_vector) * 5, Color.red);
+//            Debug.DrawRay(carframe->e.p, normalize(carframe.rudder_lift_vector) * 5, Color.yellow);
+//            Debug.DrawRay(carframe->e.p, normalize(carframe.thrust_vector) * 5, Color.green);
+//            Debug.DrawRay(carframe->e.p, normalize(carframe.v) * 5, Color.black);
 
-            Debug.DrawLine(carframe.e.p, carframe.last_p, Color.green,1000);
-            carframe.last_p = carframe.e.p;
+//            Debug.DrawLine(carframe->e.p, carframe.last_p, Color.green,1000);
+            carframe->last_p = carframe->e->transform.p;
         }
     }
 
-    public static float dampening = 0.2f;
-    public static float sus_height = 1.0f;
-
-    public static void UpdateOrientation(ref CarFrame carframe,f3 push_p,f3 push_dir,float force,f3 push_p_roll,f3 roll_dir,float roll_force)
-    {
-        if(carframe.is_grounded)
-        {
-            f3 yaw_torque = CalculateTorqueForce(push_p_roll, roll_dir) * roll_force;
-            carframe.rb.AddRelativeTorque(yaw_torque);
-            f3 kart_forward_world = carframe.e.t.forward;
-            f3 kart_up_world = carframe.e.t.up;
-            float sus_speed = 5;
-            f3 up_v = lerp(kart_up_world, carframe.last_track_normal, sus_speed * Time.deltaTime);
-            f3 projected_kart_forward = f3.ProjectOnPlane(kart_forward_world, up_v);
-            carframe.e.r = Quaternion.LookRotation(projected_kart_forward, up_v);
-        }
-    }
+#if 0
 
     public static void UpdateWheelOrientationPosition(CarFrame cf,float input)//1 to -1
     {
@@ -527,30 +563,6 @@ f3 CalculateRudderLift(CarFrame* af,FMJCurves f16lc)
     }
 
 #endif
-
-f3 fmj_physics_calculate_acceleration(CarFrame airframe,FMJCurves f16lc,FMJCurves f16rlc,FMJCurves sa_curve,f3 stick_input_throttle)
-{
-    f3 acceleration = f3_create_f(0);
-    //Mass check
-    if (airframe.desc.mass <= 0)
-    {
-        airframe.desc.mass = 1;
-//        fmj_editor_console_add_entry("CarFrame with zero mass can not exist set to 1.  Check your description!");
-//            Debug.LogError("CarFrame with zero mass can not exist set to 1.  Check your description!");
-    }
-        
-    if(!airframe.is_grounded)
-    {
-        acceleration = f3_add(acceleration,fmj_physics_calculate_gravity(airframe.desc.mass,f3_create(0, -9.806f, 0)));            
-    }
-
-    airframe.thrust_vector = fmj_physics_calculate_thrust(airframe, stick_input_throttle);
-    acceleration = f3_add(acceleration,airframe.thrust_vector);
-    acceleration = f3_add(acceleration,fmj_physics_calculate_drag(airframe, f16rlc));
-    //acceleration += CalculateRudderLift(airframe, f16lc);
-    acceleration = f3_add(acceleration,fmj_physics_calculate_lateral_force(airframe, sa_curve));
-    return acceleration;
-}
 
 
 
