@@ -307,7 +307,6 @@ static PxDefaultAllocator gDefaultAllocatorCallback;
 
     bool Update(PhysicsScene* scenes,uint32_t scene_count,float dt)
     {
-        
         step_size = 1.0f / 60.0f;
 
         accumulator  += dt;
@@ -395,6 +394,20 @@ static PxDefaultAllocator gDefaultAllocatorCallback;
         
         return result;        
     }
+
+    void AddTorqueForce(RigidBody rb,f3 dir)
+    {
+        PxVec3 v3 = {dir.x,dir.y,dir.z};
+        ((PxRigidBody*)rb.state)->addTorque(v3);        
+    }
+
+    void AddRelativeTorqueForce(RigidBody rb,FMJ3DTrans* transform,f3 dir)
+    {
+        f3 local_torque = fmj_3dtrans_world_to_local_dir(transform,dir);
+        PxVec3 v3 = {local_torque.x,local_torque.y,local_torque.z};        
+        ((PxRigidBody*)rb.state)->addTorque(v3);
+    }
+    
 };
 
 

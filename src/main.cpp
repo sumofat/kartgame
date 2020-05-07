@@ -692,7 +692,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     car_descriptor_buffer.descriptors = fmj_stretch_buffer_init(1,sizeof(CarFrameDescriptor),8);
     fmj_stretch_buffer_push(&car_descriptor_buffer.descriptors,&d);
     
-    CarFrameBuffer car_frame_buffer = {};
+
 //    kart_init_car_frames(&car_frame_buffer,car_descriptor_buffer,1);
     
     u32 tex_index = 0;
@@ -718,6 +718,23 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     f32 tset_num = 0.005f;
     //end game global  vars
 
+    CarFrameDescriptorBuffer desc = {};
+    desc.descriptors = fmj_stretch_buffer_init(1,sizeof(CarFrameDescriptor),8);
+    
+    CarFrameDescriptor cdd = {};
+    cdd.mass = 400;
+    cdd.max_thrust = 2000;
+    cdd.maximum_wheel_angle = 33;//degrees
+    cdd.count = 1;
+    cdd.type = car_frame_type_none;
+    //cdd.prefab = test_car_prefab;
+    fmj_stretch_buffer_push(&desc.descriptors,&cdd);
+
+#if 0
+    CarFrameBuffer car_frame_buffer = {};
+    kart_init_car_frames(&car_frame_buffer,desc,1);
+#endif    
+    
     //game loop
     while(ps->is_running)
     {
@@ -768,7 +785,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         }
         if(console.is_showing)
         {
-            fmj_editor_console_show(&console);
+            fmj_editor_console_show(&console,&asset_ctx);
         }
 
 //        if(console.curves_output.buffer.fixed.count > 0)
@@ -818,7 +835,15 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         kart_physics_so->transform.local_p = new_p;
         kart_physics_so->transform.local_r = new_r;        
         fmj_stretch_buffer_check_in(&asset_ctx.scene_objects);
-        
+
+#if 0
+        FMJCurves f16lc;
+        FMJCurves f16rlc;
+        FMJCurves sa_curve;
+        f3 input_axis = f3_create_f(0);        
+        UpdateCarFrames(ps,&car_frame_buffer,f16lc,f16rlc,sa_curve,ps->time.delta_seconds,input_axis,scene);
+#endif
+
 //        track_so->transform.local_r = quaternion_mul(f3_axis_angle(f3_create(0,1,0),angle),start_r);
 //        track_so->transform.local_s = f3_create_f(100);        
         //duck_child_3->transform.local_r = f3_axis_angle(f3_create(0,1,0),angle);

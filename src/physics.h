@@ -120,6 +120,10 @@ namespace PhysicsCode
     void SetFrictionCombineMode(PhysicsMaterial mat,physx::PxCombineMode::Enum mode);
 
     PhysicsShapeMesh CreatePhyshicsMeshShape(void* vertex_data,u64 vertex_count,void* index_data,u64 index_count,u16 index_type,PhysicsMaterial material);
+
+    void AddTorqueForce(RigidBody rb,f3 dir);
+    void AddRelativeTorqueForce(RigidBody rb,FMJ3DTrans* transform,f3 dir);
+    
 };
 
 #define PHYSICS_H
