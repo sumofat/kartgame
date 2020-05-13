@@ -182,7 +182,7 @@ f3 fmj_physics_calculate_drag(CarFrame airframe,FMJCurves curves)
     //BEGIN DRAG
     //TODO(Ray):Make a curve editor for saving curves to use for evaultion
     //and fine tuning.
-    f32 coeffecient_of_drag = fmj_animation_curve_evaluate(curves,airframe.last_aoa);
+    f32 coeffecient_of_drag = 10.5f;//fmj_animation_curve_evaluate(curves,airframe.last_aoa);
 
     //NOTE(Ray):We do not take into account  changing  areas based on rotation.
     //cross section in relation to the vector of movement        
@@ -276,23 +276,32 @@ f3 CalculateTorqueForce(f3 p_of_force, f3 force)
     return cross(p_of_force, force);
 }
 
-void UpdateOrientation(CarFrame* carframe,f3 push_p_roll,f3 roll_dir,float roll_force,f32 delta_time)
+void UpdateOrientation(CarFrame* carframe,f3 push_p_roll,f3 roll_dir,float roll_force,f32 delta_time,PhysicsScene pscene,PlatformState* ps)
 {
     ASSERT(carframe)
         if(carframe->is_grounded)
         {
             f3 yaw_torque = f3_mul_s(CalculateTorqueForce(push_p_roll, roll_dir),roll_force);
 
+        PhysicsCode::SetGlobalPose(carframe->rb,carframe->e->transform.p,carframe->e->transform.r);        
+        PhysicsCode::Simulate(&pscene,1,ps->time.delta_seconds);        
+        PhysicsCode::FetchResults(&pscene,true);            
 //            carframe.rb.AddRelativeTorque(yaw_torque);
 //            yaw_torque = fmj_3dtrans_world_to_local_dir(&carframe->e->transform,yaw_torque);            
             PhysicsCode::AddRelativeTorqueForce(carframe->rb,&carframe->e->transform,yaw_torque);
+            PhysicsCode::Simulate(&pscene,1,ps->time.delta_seconds);
+            PhysicsCode::FetchResults(&pscene,true);
+            FMJ3DTrans rbtrans = PhysicsCode::GetGlobalPose(carframe->rb);
+            carframe->e->transform.r = rbtrans.r;
+            fmj_3dtrans_update(&carframe->e->transform);
 
             f3 kart_forward_world = carframe->e->transform.forward;
             f3 kart_up_world = carframe->e->transform.up;
             float sus_speed = 5;
-            f3 up_v = f3_lerp(kart_up_world, carframe->last_track_normal, f3_create_f(sus_speed * delta_time));
-            f3 projected_kart_forward = f3_project_on_plane(kart_forward_world, up_v);
-//            carframe->e->transform.local_r = quaternion_look_rotation(projected_kart_forward, up_v);
+            f3 up_v = f3_lerp(kart_up_world, carframe->last_track_normal, f3_create_f(clamp(sus_speed * delta_time,0,1)));
+            f3 projected_kart_forward = (f3_project_on_plane(kart_forward_world, up_v));
+
+            carframe->e->transform.local_r = quaternion_look_rotation(projected_kart_forward, up_v);
 
 //            carframe->e->transform.local_r = rbtrans.r;            
         }
@@ -356,6 +365,7 @@ f3 fmj_physics_calculate_acceleration(CarFrame* airframe_,FMJCurves f16lc,FMJCur
     acceleration = f3_add(acceleration,fmj_physics_calculate_lateral_force(airframe, sa_curve));
     return acceleration;
 }
+
 f32 angle = 0;
 void UpdateCarFrames(PlatformState* ps,CarFrameBuffer* buffer,FMJCurves f16lc,FMJCurves f16rlc,FMJCurves sa_curve,float timestep,f3 stick_input_throttle,PhysicsScene pscene,f32 dt)
 {
@@ -386,7 +396,7 @@ void UpdateCarFrames(PlatformState* ps,CarFrameBuffer* buffer,FMJCurves f16lc,FM
             carframe->last_hit_p = grounded_result.hit_p;
             f32 d = f3_distance(carframe->e->transform.p, carframe->last_hit_p);
             f32 penetration_distance = (sus_height - 0.01f) - d;
-            carframe->e->transform.p.y = (carframe->e->transform.p.y + penetration_distance);
+            carframe->e->transform.local_p.y = (carframe->e->transform.local_p.y + penetration_distance);
         }
         else
         {
@@ -424,7 +434,7 @@ void UpdateCarFrames(PlatformState* ps,CarFrameBuffer* buffer,FMJCurves f16lc,FM
 
         f3 push_p_roll = f3_create(0, 0, 0);
         f3 roll_dir = f3_create(1, 0, 0);
-        float turn_power = 2;
+        float turn_power = 0.1f;//2;
 
         if (ps->input.keyboard.keys[keys.e].down)
         {
@@ -478,21 +488,15 @@ void UpdateCarFrames(PlatformState* ps,CarFrameBuffer* buffer,FMJCurves f16lc,FM
 
         stick_input_throttle = f3_mul_s(stick_input_throttle,5.5f);
 
-//        PhysicsCode::SetGlobalPose(carframe->rb,carframe->e->transform.p,quaternion_inverse(carframe->e->transform.r));
-        PhysicsCode::SetGlobalPose(carframe->rb,carframe->e->transform.p,carframe->e->transform.r);        
-        PhysicsCode::Simulate(&pscene,1,ps->time.delta_seconds);        
-        PhysicsCode::FetchResults(&pscene,true);            
-
-//        UpdateOrientation(carframe,push_p_roll,roll_dir,-stick_input_throttle.x,ps->time.delta_seconds);
+        UpdateOrientation(carframe,push_p_roll,roll_dir,-stick_input_throttle.x,ps->time.delta_seconds,pscene,ps);
         
-        carframe->e->transform.local_r = f3_axis_angle(f3_create(0,1,0),angle);
+//        carframe->e->transform.local_r = f3_axis_angle(f3_create(0,1,0),angle);
 //Debug.Log("aoa: " + carframe.last_aoa + "aos: " + carframe.last_aos);
         //linear forces
         fmj_3dtrans_update(&carframe->e->transform);
             
         f3 Acceleration = fmj_physics_calculate_acceleration(carframe,f16lc,f16rlc,sa_curve, stick_input_throttle);
     
-//            f3 Acceleration = CalculateAcceleration(carframe,f16lc,f16rlc,sa_curve, stick_input_throttle);
         f3 a = f3_mul_s(Acceleration,0.5f);
         f3 b = f3_s_mul(timestep,a);
         f3 c = f3_add(carframe->v,b);
@@ -590,6 +594,7 @@ void UpdateCarFrames(PlatformState* ps,CarFrameBuffer* buffer,FMJCurves f16lc,FM
                 //t.position = hit_p;
                 float half_wheel_radius = 0.70f;
                 t.position = hit_p + f3(0, half_wheel_radius, 0);
+
             }
             else
             {
