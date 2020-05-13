@@ -85,6 +85,8 @@ namespace PhysicsCode
     PhysicsShapeSphere CreateSphere(float radius,PhysicsMaterial material);
     PhysicsShapeBox CreateBox(f3 dim,PhysicsMaterial material);
     void SetSimulationFilterData(PxShape* shape,u32 a,u32 b);
+    void SetQueryFilterData(PxShape* shape,u32 a);
+    
     //built in "shader" Callback/s
     PxFilterFlags DefaultFilterShader(
         PxFilterObjectAttributes attributes0, PxFilterData filterData0,
@@ -120,10 +122,15 @@ namespace PhysicsCode
     void SetFrictionCombineMode(PhysicsMaterial mat,physx::PxCombineMode::Enum mode);
 
     PhysicsShapeMesh CreatePhyshicsMeshShape(void* vertex_data,u64 vertex_count,void* index_data,u64 index_count,u16 index_type,PhysicsMaterial material);
-
+    void SetAngularDampening(RigidBody rb,f32 a);
     void AddTorqueForce(RigidBody rb,f3 dir);
     void AddRelativeTorqueForce(RigidBody rb,FMJ3DTrans* transform,f3 dir);
-    
+    void SetGlobalPoseP(RigidBody rb,f3 p);
+    void SetGlobalPose(RigidBody rb,f3 p,quaternion r);
+    FMJ3DTrans GetGlobalPose(RigidBody rb);
+    void Simulate(PhysicsScene* scenes,uint32_t scene_count,float dt);
+    void FetchResults(PhysicsScene* s,bool blocking);
+
 };
 
 #define PHYSICS_H

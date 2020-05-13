@@ -87,7 +87,6 @@ void fmj_camera_orbit(FMJAssetContext*ctx,RenderCamera* rc,Input input,f32 delta
     quaternion pitch = f3_axis_angle(f3_create(1, 0, 0), cam_pitch_yaw.y);
     quaternion yaw   = f3_axis_angle(f3_create(0, 1, 0), cam_pitch_yaw.x * -1);
     quaternion turn_qt = quaternion_mul(pitch,yaw);        
-
     
     rc->ot.p = f3_add(target.p,f3_mul_s(quaternion_forward(turn_qt),radius));
     rc->ot.r = turn_qt;

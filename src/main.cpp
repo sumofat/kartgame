@@ -30,6 +30,13 @@ extern "C"{
 
 #include "platform_win32.h"
 
+struct GOHandle
+{
+    u64 index;
+    FMJStretchBuffer* buffer;
+    u32 type;//0 none 1 car
+}typedef;
+
 struct AssetTables
 {
     AnyCache materials;
@@ -48,7 +55,8 @@ struct FMJAssetContext
     FMJMemoryArena* temp_mem;
     AssetTables* asset_tables;
 
-    FMJStretchBuffer scene_objects;        
+    FMJStretchBuffer scene_objects;
+    AnyCache so_to_go;
 }typedef FMJAssetContext;
 
 #include "fmj_scene.h"
@@ -63,12 +71,13 @@ struct FMJAssetContext
 
 #include "animation.h"
 
-#include "editor.h"
-#include "editor_scene_objects.h"
-
 //Game files
 #include "carframe.h"
 //End game files
+
+#include "editor.h"
+#include "editor_scene_objects.h"
+
 
 //BEGIN FMJSCENE TEST
 
@@ -529,7 +538,9 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 
     FMJAssetContext asset_ctx = {};
     asset_ctx.scene_objects = fmj_stretch_buffer_init(100,sizeof(FMJSceneObject),8);
-    
+    //NOTE(Ray):We should make it the largest size of al the gameobjects to use it with any game object.
+    asset_ctx.so_to_go = fmj_anycache_init(1024,sizeof(GOHandle),sizeof(FMJSceneObject*),false);
+
     asset_ctx.asset_tables = &asset_tables;
     asset_ctx.perm_mem = &permanent_strings;
     asset_ctx.temp_mem = &temp_strings;    
@@ -574,7 +585,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     fmj_3dtrans_init(&kart_trans);
     kart_trans.p = f3_create(0,0.4f,-1);    
     quaternion start_r = kart_trans.r;
-    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,kart_instance_id,kart_trans);
+//    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,kart_instance_id,kart_trans);
     
     FMJ3DTrans duck_trans;
     fmj_3dtrans_init(&duck_trans);
@@ -606,6 +617,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     FMJAssetMesh track_mesh = fmj_stretch_buffer_get(FMJAssetMesh,&asset_ctx.asset_tables->meshes,mesh_id);
     FMJAssetMesh track_collision_mesh = track_mesh;
     PhysicsShapeMesh track_physics_mesh = CreatePhysicsMeshShape(&track_mesh,physics_material);
+    PhysicsCode::SetQueryFilterData((PxShape*)track_physics_mesh.state,(u32)go_type_track);    
 
 	track_collision_mesh.vertex_data   = (f32*)track_physics_mesh.tri_mesh->getVertices();
 	track_collision_mesh.vertex_count  = track_physics_mesh.tri_mesh->getNbVertices() * 3;
@@ -645,13 +657,13 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     PhysicsShapeBox phyx_box_shape = PhysicsCode::CreateBox(f3_create(1.2f,0.2f,1.2f),physics_material);
         
     RigidBody track_rbd = PhysicsCode::CreateStaticRigidbody(track_trans.p,track_physics_mesh.state);        
-    RigidBody kart_rbd = PhysicsCode::CreateDynamicRigidbody(kart_trans.p,phyx_box_shape.state,false);//kart_physics_mesh.state,true);
+//    RigidBody kart_rbd = PhysicsCode::CreateDynamicRigidbody(kart_trans.p,phyx_box_shape.state,false);//kart_physics_mesh.state,true);
 
     PhysicsCode::AddActorToScene(scene, track_rbd);    
-    PhysicsCode::AddActorToScene(scene, kart_rbd);
+//    PhysicsCode::AddActorToScene(scene, kart_rbd);
 
-    PhysicsCode::UpdateRigidBodyMassAndInertia(kart_rbd,1);
-    PhysicsCode::SetMass(kart_rbd,1);
+//    PhysicsCode::UpdateRigidBodyMassAndInertia(kart_rbd,1);
+//    PhysicsCode::SetMass(kart_rbd,1);
     
 //end game object setup
 
@@ -679,21 +691,6 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     ui_quad_gpu_arena.resource->SetName(L"UI_QUADS_GPU_ARENA");    
 #endif
 //end up load data to gpu
-
-    //game global vars
-    CarFrameDescriptorBuffer car_descriptor_buffer;
-    CarFrameDescriptor d = {};
-    d.mass = 400;
-    d.max_thrust = 2000;
-    d.maximum_wheel_angle = 33;//degrees
-    d.count = 1;
-//    d.type = CarFrameType.test;
-//    d.prefab = test_car_prefab;
-    car_descriptor_buffer.descriptors = fmj_stretch_buffer_init(1,sizeof(CarFrameDescriptor),8);
-    fmj_stretch_buffer_push(&car_descriptor_buffer.descriptors,&d);
-    
-
-//    kart_init_car_frames(&car_frame_buffer,car_descriptor_buffer,1);
     
     u32 tex_index = 0;
     f32 angle = 0;    
@@ -718,23 +715,27 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     f32 tset_num = 0.005f;
     //end game global  vars
 
-    CarFrameDescriptorBuffer desc = {};
-    desc.descriptors = fmj_stretch_buffer_init(1,sizeof(CarFrameDescriptor),8);
-    
-    CarFrameDescriptor cdd = {};
-    cdd.mass = 400;
-    cdd.max_thrust = 2000;
-    cdd.maximum_wheel_angle = 33;//degrees
-    cdd.count = 1;
-    cdd.type = car_frame_type_none;
-    //cdd.prefab = test_car_prefab;
-    fmj_stretch_buffer_push(&desc.descriptors,&cdd);
+    //game global vars
+    CarFrameDescriptorBuffer car_descriptor_buffer;
+    CarFrameDescriptor d = {};
+    d.mass = 400;
+    d.max_thrust = 2000;
+    d.maximum_wheel_angle = 33;//degrees
+    //d.count = 1;
+    d.physics_material = physics_material;
+    d.parent_id = root_node_id;
+    d.physics_scene = scene;
+    d.model = kart_model_result;
+        
+//    d.type = CarFrameType.test;
+//    d.prefab = test_car_prefab;
+    car_descriptor_buffer.descriptors = fmj_stretch_buffer_init(1,sizeof(CarFrameDescriptor),8);
+    fmj_stretch_buffer_push(&car_descriptor_buffer.descriptors,&d);
 
-#if 0
     CarFrameBuffer car_frame_buffer = {};
-    kart_init_car_frames(&car_frame_buffer,desc,1);
-#endif    
-    
+    kart_init_car_frames(&car_frame_buffer,car_descriptor_buffer,1,&asset_ctx);
+
+    CarFrame player_car = fmj_stretch_buffer_get(CarFrame,&car_frame_buffer.car_frames,0);
     //game loop
     while(ps->is_running)
     {
@@ -788,7 +789,6 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             fmj_editor_console_show(&console,&asset_ctx);
         }
 
-//        if(console.curves_output.buffer.fixed.count > 0)
         {
             FMJFileReadResult read_result = fmj_file_platform_read_entire_file("curve1");
             if(read_result.content_size > 0)
@@ -797,8 +797,6 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                 f32 acr = fmj_animation_curve_evaluate(console.curves_output,-4.0f);
                 int a = 0;
             }
-            
-            int a = 0;
         }
         
         //END EDITOR IMGUI
@@ -821,27 +819,23 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 //        test_model_result.scene_object->transform.p = f3_create(0,-10,-25);
 //        root_node->transform.local_r = f3_axis_angle(f3_create(0,0,1),angle);
         FMJSceneObject* track_physics_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,track_physics_id);
+        
         PxTransform pxt = ((PxRigidDynamic*)track_rbd.state)->getGlobalPose();
         f3 new_p = f3_create(pxt.p.x,pxt.p.y,pxt.p.z);
         quaternion new_r = quaternion_create(pxt.q.x,pxt.q.y,pxt.q.z,pxt.q.w);
+
         track_physics_so->transform.local_p = new_p;
         track_physics_so->transform.local_r = new_r;
         fmj_stretch_buffer_check_in(&asset_ctx.scene_objects);
+        track_so->transform = track_physics_so->transform;
 
-        FMJSceneObject* kart_physics_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,kart_instance_id);
-        pxt = ((PxRigidDynamic*)kart_rbd.state)->getGlobalPose();
-        new_p = f3_create(pxt.p.x,pxt.p.y,pxt.p.z);
-        new_r = quaternion_create(pxt.q.x,pxt.q.y,pxt.q.z,pxt.q.w);
-        kart_physics_so->transform.local_p = new_p;
-        kart_physics_so->transform.local_r = new_r;        
-        fmj_stretch_buffer_check_in(&asset_ctx.scene_objects);
-
-#if 0
+#if 1
         FMJCurves f16lc;
         FMJCurves f16rlc;
         FMJCurves sa_curve;
-        f3 input_axis = f3_create_f(0);        
-        UpdateCarFrames(ps,&car_frame_buffer,f16lc,f16rlc,sa_curve,ps->time.delta_seconds,input_axis,scene);
+        f3 input_axis = f3_create_f(0);
+
+        UpdateCarFrames(ps,&car_frame_buffer,f16lc,f16rlc,sa_curve,ps->time.delta_seconds,input_axis,scene,ps->time.delta_seconds);
 #endif
 
 //        track_so->transform.local_r = quaternion_mul(f3_axis_angle(f3_create(0,1,0),angle),start_r);
@@ -877,7 +871,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 //        SoundCode::ContinousPlay(&bgm_soundclip);
 //Render camera stated etc..  is finalized        
 
-        fmj_camera_orbit(&asset_ctx,&rc,ps->input,ps->time.delta_seconds,kart_physics_so->transform,2);
+//        fmj_camera_orbit(&asset_ctx,&rc,ps->input,ps->time.delta_seconds,kart_physics_so->transform,2);
+        fmj_camera_orbit(&asset_ctx,&rc,ps->input,ps->time.delta_seconds,player_car.e->transform,2);        
 //        fmj_camera_chase(&asset_ctx,&rc,ps->input,ps->time.delta_seconds,kart_physics_so->transform,f3_create(0,3,-3));
 //        fmj_camera_free(&asset_ctx,&rc,ps->input,ps->time.delta_seconds);
         

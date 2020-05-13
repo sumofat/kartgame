@@ -148,10 +148,10 @@ void UpdateChildren(FMJAssetContext* ctx,FMJSceneObject* parent_so,f3* position_
         child_so = fmj_stretch_buffer_check_out(FMJSceneObject,&ctx->scene_objects,*child_so_index);        
         FMJ3DTrans *ot = &child_so->transform;
         f3 current_p_sum = *position_sum;
-        quaternion current_r_product = *rotation_product;
+        quaternion current_r_product = (*rotation_product);
         ot->p = current_p_sum = f3_add(current_p_sum,f3_rotate((current_r_product), ot->local_p));
-        ot->r = current_r_product = quaternion_mul(current_r_product,ot->local_r);        
-
+        ot->r = current_r_product = (quaternion_mul(current_r_product,ot->local_r));
+        
         ot->s = ot->local_s;//f3_mul(parent_so->transform.s,ot->local_s);//
 
         UpdateChildren(ctx,child_so, &current_p_sum, &current_r_product);
@@ -171,7 +171,7 @@ void UpdateSceneObjects(FMJAssetContext* ctx,FMJSceneObjectBuffer* buffer,f3* po
         fmj_3dtrans_update(parent_ot);
         f3 current_p_sum = *position_sum;
         current_p_sum = f3_add(current_p_sum,parent_ot->p);
-        *rotation_product = parent_ot->local_r;
+        *rotation_product = quaternion_inverse(parent_ot->local_r);
         UpdateChildren(ctx,so, &current_p_sum, rotation_product);
         fmj_stretch_buffer_check_in(&ctx->scene_objects);
     }

@@ -1,49 +1,9 @@
-enum KomaType
+enum GameObjectType
 {
-    koma_type_none,
-    koma_type_pawn,
-    koma_type_rook,
-    koma_type_queen,
-    koma_type_king
+    go_type_none,
+    go_type_kart,
+    go_type_track,
 };
-
-enum KomaActionType
-{
-    koma_action_type_none,
-    koma_action_type_attack,
-    koma_action_type_defense
-};
-
-struct Koma
-{
-    u64 inner_id;
-    u64 outer_id;
-//    f3 velocity;
-    RigidBody rigid_body;
-    int hp;
-    u32 max_hp;
-    u32 atk_pow;
-    KomaType type;
-    KomaActionType action_type;
-    f32 max_speed;
-    f32 friction;
-    u32 team_id;//index out of  10
-    u32  player_id;
-}typedef Koma;
-
-struct FingerPull
-{
-    f2 start_pull_p;
-    f2 end_pull_p;
-    float pull_strength;
-    bool pull_begin = false;
-    Koma* koma;
-//    u64 koma_id
-};
-
-
-FMJStretchBuffer komas;
-FingerPull finger_pull = {};
 
 PxFilterFlags KomaFilterShader(
     PxFilterObjectAttributes attributes0, PxFilterData filterData0,
@@ -97,53 +57,11 @@ class GamePiecePhysicsCallback : public PxSimulationEventCallback
 
 	void onContact(const PxContactPairHeader& pairHeader, const PxContactPair* pairs, PxU32 nbPairs) override
 	{
-#if 0
 		for (PxU32 i = 0; i < nbPairs; i++)
 		{
 			const PxContactPair& cp = pairs[i];
-            {
-                u64 k_i = (u64)pairHeader.actors[0]->userData;
-                Koma* k  = fmj_stretch_buffer_check_out(Koma,&komas,k_i);
-
-                u64 k2_i = (u64)pairHeader.actors[1]->userData;                                            
-                Koma* k2 = fmj_stretch_buffer_check_out(Koma,&komas,k2_i);
-/*
-                if(k->player_id == k2->player_id)
-                {
-                    //simulate physics for own team only
-                    //and take damage
-                    if(k->action_type == koma_action_type_defense)
-                    {
-                        u32 atk_pow = k->atk_pow;
-                        k2->hp -= max(atk_pow,0);                                        
-                    }
-                    else if(k2->action_type == koma_action_type_defense)
-                    {
-                        u32 atk_pow = k2->atk_pow;                        
-                        k->hp -= max(atk_pow,0);                                        
-                    }
-                }
-                //               else
-                */
-                {
-                    //take damage but no physics
-                    if(k->action_type == koma_action_type_attack)
-                    {
-                        u32 atk_pow = k->atk_pow;
-                        k2->hp -= max(atk_pow,0);                                        
-                    }
-                    else if(k2->action_type == koma_action_type_attack)
-                    {
-                        u32 atk_pow = k2->atk_pow;                        
-                        k->hp -= max(atk_pow,0);                                        
-                    }
-                }
-
-                fmj_stretch_buffer_check_in(&komas);
-                fmj_stretch_buffer_check_in(&komas);
-            }
+            
 		}
-        #endif
 	}
 };
 
@@ -195,16 +113,4 @@ FMJSprite add_sprite_to_stretch_buffer(FMJStretchBuffer* sprites,u64 material_id
 }
 
 
-
-bool CheckValidFingerPull(FingerPull* fp)
-{
-    ASSERT(fp);
-    fp->pull_strength = abs(f2_length(f2_sub(fp->start_pull_p,fp->end_pull_p)));
-    if(fp->pull_strength > 2)
-    {
-        return true;
-    }
-    fp->pull_strength = 0;
-    return false;
-}
 

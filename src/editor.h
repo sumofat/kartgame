@@ -77,7 +77,6 @@ void fmj_editor_console_init(FMJEditorConsole* console)
     if(console)
     {
         console->is_showing = false;
-//        console->commands = fmj_stretch_buffer_init(1,)
         console->string_mem = fmj_arena_allocate(FMJMEGABYTES(2));
         console->scratch_mem = fmj_arena_allocate(FMJKILOBYTES(512));        
         console->items = fmj_stretch_buffer_init(1,sizeof(FMJString),8);
@@ -295,7 +294,7 @@ void fmj_editor_move_point_at_mp(FMJEditorConsole* console,f2 mp,f2 scale_factor
             f2 test_p = curve->points[j];
             f2 non_offset_test_p = test_p;
 
-            if(j == 1 || j == 2)//control points
+            if(j == 1 || j == 2)//handles
             {
                 if(j == 1)
                     test_p = curve->handle_a;
@@ -525,7 +524,7 @@ void fmj_editor_console_show(FMJEditorConsole* console,FMJAssetContext* asset_ct
             test_p = fmj_editor_apply_scale_f2(f2_create_f(0),scaled_test_p,scale_factor_inverted,f2_create_f(grid_dim.y));            
             if(i == 1)
             {
-                f2 diff_v2 = f2_sub(mp,test_p);
+                f2 diff_v2 = f2_mul(f2_normalize(f2_sub(mp,test_p)),scale_factor);
                 f2 new_p = f2_add(curve->handle_a,diff_v2);
                 curve->handle_a = new_p;
 
@@ -537,7 +536,7 @@ void fmj_editor_console_show(FMJEditorConsole* console,FMJAssetContext* asset_ct
             }
             else if(i == 2)
             {
-                f2 diff_v2 = f2_sub(mp,test_p);
+                f2 diff_v2 = f2_mul(f2_normalize(f2_sub(mp,test_p)),scale_factor);                
                 f2 new_p = f2_add(curve->handle_b,diff_v2);
                 curve->handle_b = new_p;
     
@@ -566,8 +565,7 @@ void fmj_editor_console_show(FMJEditorConsole* console,FMJAssetContext* asset_ct
             }
             
             test_p = fmj_editor_apply_scale_f2(f2_create_f(0),scaled_test_p,scale_factor_inverted,f2_create_f(grid_dim.y));
-            f2 diff_v2 = f2_sub(mp,test_p);
-                    
+            f2 diff_v2 = f2_mul(f2_normalize(f2_sub(mp,test_p)),scale_factor);                                    
             f2 new_p = f2_add(non_offset_test_p,diff_v2);
             f2 move_diff = f2_sub(new_p,non_offset_test_p);
             if(i == 0)
@@ -790,7 +788,6 @@ void fmj_editor_console_show(FMJEditorConsole* console,FMJAssetContext* asset_ct
              if (is_selected)
              {
                  ImGui::SetItemDefaultFocus();   // Set the initial focus when opening the combo (scrolling + for keyboard navigation support in the upcoming navigation branch)
-
              }
          }
          ImGui::EndCombo();

@@ -20,12 +20,15 @@ struct CarFrameDescriptor
 {
     CarFrameType type;
 //    GameObject prefab;
-    int count;
+//    int count;
     f32 mass;
     f32 max_thrust;
     f32 maximum_wheel_angle;
     int wheel_count;
-
+    FMJAssetModelLoadResult model;
+    u64 parent_id;
+    PhysicsMaterial physics_material;
+    PhysicsScene physics_scene;
 }typedef CarFrameDescriptor;
  
 struct CarFrame
@@ -43,7 +46,8 @@ struct CarFrame
     f32 inverse_inertia;
 
     RigidBody rb;
-
+    u64 mesh_instance_id;
+    
     f3 total_lift;
     f3 last_v;
     f3 last_accel;
@@ -52,7 +56,6 @@ struct CarFrame
 
     CarFrameDescriptor desc;
     f32 indicated_ground_speed;
-    f3 ground_normal;
 
     f32 sus_height;
     bool is_grounded;
@@ -61,7 +64,6 @@ struct CarFrame
     f3 last_p;
     f3 last_track_normal;
     f3 last_hit_p;
-    f32 friction;
 
     FMJ3DTrans wheel_transforms[4];//add more if we need
     u32 wheel_count;
@@ -81,7 +83,7 @@ struct AgentGroundedTestResult
 float dampening = 0.2f;
 float sus_height = 1.0f;
 
-void kart_init_car_frames(CarFrameBuffer* buffer,CarFrameDescriptorBuffer buffer_desc,int count)
+void kart_init_car_frames(CarFrameBuffer* buffer,CarFrameDescriptorBuffer buffer_desc,int count,FMJAssetContext* asset_ctx)
 {
     ASSERT(buffer);
     buffer->car_frames = fmj_stretch_buffer_init(count,sizeof(CarFrame),8);
@@ -89,27 +91,48 @@ void kart_init_car_frames(CarFrameBuffer* buffer,CarFrameDescriptorBuffer buffer
     {
         CarFrameDescriptor desc = fmj_stretch_buffer_get(CarFrameDescriptor,&buffer_desc.descriptors,i);
 //        GameObject prefab_instance = desc.prefab;
-        for (int j = 0; j < desc.count; j++)
+//        for (int j = 0; j < desc.count; j++)
         {
             CarFrame new_airframe = {};//new CarFrame();
             new_airframe.desc = desc;
+            u64 instance_id = fmj_asset_create_model_instance(asset_ctx,&desc.model);
+            FMJ3DTrans trans = {};
+            trans.p = f3_create_f(0);
+            trans.r =  quaternion_identity();
+            trans.s = f3_create_f(1);            
+            AddModelToSceneObjectAsChild(asset_ctx,desc.parent_id,instance_id,trans);
+
+            //TODO(Ray):Dont sotre the so here store the id
+            FMJSceneObject* so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx->scene_objects,instance_id);            
 //            GameObject go  = Object.Instantiate(prefab_instance) as GameObject;
-//            new_airframe.e = AddEntity(repo, go.transform); 
-            new_airframe.e->transform.p = f3_create_f(0);
-            new_airframe.e->transform.r =  quaternion_identity();
-            new_airframe.e->transform.s = f3_create_f(1);
+//            new_airframe.e = AddEntity(repo, go.transform);
+            new_airframe.e = so;
+            
             new_airframe.last_v = f3_create_f(0);
             new_airframe.v = f3_create_f(0);
             new_airframe.total_lift = f3_create(0, 100, 0);
             new_airframe.thrust_vector = f3_create(0, 0, 0);
             new_airframe.lift_vector = f3_create(0, 1, 0);
+            PhysicsShapeBox phyx_box_shape = PhysicsCode::CreateBox(f3_create(1.2f,0.2f,1.2f),desc.physics_material);
+            PhysicsCode::SetQueryFilterData((PxShape*)phyx_box_shape.state,(u32)go_type_kart);
+            RigidBody rbd = PhysicsCode::CreateDynamicRigidbody(so->transform.p,phyx_box_shape.state,false);
+            new_airframe.rb = rbd;            
+            PhysicsCode::AddActorToScene(desc.physics_scene, new_airframe.rb);
+            //PhysicsCode::UpdateRigidBodyMassAndInertia(kart_rbd,1);
+//            PhysicsCode::SetMass(kart_rbd,1);
+
 //            new_airframe.rb = go.AddComponent<Rigidbody>();
-            //new_airframe.rb.angularDrag = 3.1f;
+            PhysicsCode::SetAngularDampening(new_airframe.rb,3.1);
+//            new_airframe.rb.angularDrag = 3.1f;
+            
             new_airframe.repulsive_force_area = 24;
 //            new_airframe.rb.useGravity = false;
-//            new_airframe.sus_height = sus_height;
-//            new_airframe.rb.constraints = RigidbodyConstraints.FreezePosition;k
+            PhysicsCode::DisableGravity((physx::PxActor*)new_airframe.rb.state,false);            
+            new_airframe.sus_height = sus_height;
+            PhysicsCode::LockRigidPosition(new_airframe.rb);
+//            new_airframe.rb.constraints = RigidbodyConstraints.FreezePosition;
 //            new_airframe.e.is_rigidbody_rotation = true;
+            
 //            new_airframe.wheel_transforms = new List<Transform>();
 /*
             for(int w = 0; w < desc.wheel_count; ++w)
@@ -137,8 +160,11 @@ void kart_init_car_frames(CarFrameBuffer* buffer,CarFrameDescriptorBuffer buffer
                 new_airframe.wheel_transforms.Add(wheel_t);
             }
 */
-            
-            fmj_stretch_buffer_push(&buffer->car_frames,&new_airframe);
+
+            GOHandle handle = {};            
+            handle.index = fmj_stretch_buffer_push(&buffer->car_frames,&new_airframe);
+            handle.buffer = &buffer->car_frames;
+            fmj_anycache_add(&asset_ctx->so_to_go,so,&handle);
         }
     }
 }
@@ -228,8 +254,6 @@ f3 fmj_physics_calculate_lateral_force(CarFrame cf,FMJCurves slip_angle_curve)
     return f3_div_s(lateral_force,cf.desc.mass);
 }
 
-
-
 f3 CalculateRudderLift(CarFrame* af,FMJCurves f16lc)
 {
     f32 CI = af->last_aos;
@@ -252,7 +276,7 @@ f3 CalculateTorqueForce(f3 p_of_force, f3 force)
     return cross(p_of_force, force);
 }
 
-void UpdateOrientation(CarFrame* carframe,f3 push_p,f3 push_dir,float force,f3 push_p_roll,f3 roll_dir,float roll_force,f32 delta_time)
+void UpdateOrientation(CarFrame* carframe,f3 push_p_roll,f3 roll_dir,float roll_force,f32 delta_time)
 {
     ASSERT(carframe)
         if(carframe->is_grounded)
@@ -263,12 +287,14 @@ void UpdateOrientation(CarFrame* carframe,f3 push_p,f3 push_dir,float force,f3 p
 //            yaw_torque = fmj_3dtrans_world_to_local_dir(&carframe->e->transform,yaw_torque);            
             PhysicsCode::AddRelativeTorqueForce(carframe->rb,&carframe->e->transform,yaw_torque);
 
-                f3 kart_forward_world = carframe->e->transform.forward;
+            f3 kart_forward_world = carframe->e->transform.forward;
             f3 kart_up_world = carframe->e->transform.up;
             float sus_speed = 5;
             f3 up_v = f3_lerp(kart_up_world, carframe->last_track_normal, f3_create_f(sus_speed * delta_time));
             f3 projected_kart_forward = f3_project_on_plane(kart_forward_world, up_v);
-            carframe->e->transform.r = quaternion_look_rotation(projected_kart_forward, up_v);
+//            carframe->e->transform.local_r = quaternion_look_rotation(projected_kart_forward, up_v);
+
+//            carframe->e->transform.local_r = rbtrans.r;            
         }
 }
 
@@ -286,7 +312,12 @@ AgentGroundedTestResult GroundCast(PhysicsScene scene,CarFrame a, f3 p, f3 up,f3
     f3 neg_up = f3_negate(up);
     PxVec3 pp = {p.x,p.y,p.z};
     PxVec3 upp = {neg_up.x,neg_up.y,neg_up.z};
-    bool status = scene.state->raycast(pp,upp,ray_length,hit);        
+
+    const PxHitFlags outputFlags = PxHitFlag::ePOSITION | PxHitFlag::eNORMAL;
+    PxQueryFilterData filterData = PxQueryFilterData();
+    filterData.data.word0 = go_type_track;
+    
+    bool status = scene.state->raycast(pp,upp,ray_length,hit,outputFlags,filterData); 
     if (status && hit.hasBlock && hit.block.shape != NULL)
     {
         result.distance_from_hit_p = hit.block.distance;
@@ -301,10 +332,10 @@ AgentGroundedTestResult GroundCast(PhysicsScene scene,CarFrame a, f3 p, f3 up,f3
     return result;
 }
 
-
-f3 fmj_physics_calculate_acceleration(CarFrame airframe,FMJCurves f16lc,FMJCurves f16rlc,FMJCurves sa_curve,f3 stick_input_throttle)
+f3 fmj_physics_calculate_acceleration(CarFrame* airframe_,FMJCurves f16lc,FMJCurves f16rlc,FMJCurves sa_curve,f3 stick_input_throttle)
 {
     f3 acceleration = f3_create_f(0);
+    CarFrame airframe = *airframe_;
     //Mass check
     if (airframe.desc.mass <= 0)
     {
@@ -318,158 +349,161 @@ f3 fmj_physics_calculate_acceleration(CarFrame airframe,FMJCurves f16lc,FMJCurve
         acceleration = f3_add(acceleration,fmj_physics_calculate_gravity(airframe.desc.mass,f3_create(0, -9.806f, 0)));            
     }
 
-    airframe.thrust_vector = fmj_physics_calculate_thrust(airframe, stick_input_throttle);
+    airframe_->thrust_vector = fmj_physics_calculate_thrust(airframe, stick_input_throttle);
     acceleration = f3_add(acceleration,airframe.thrust_vector);
     acceleration = f3_add(acceleration,fmj_physics_calculate_drag(airframe, f16rlc));
     //acceleration += CalculateRudderLift(airframe, f16lc);
     acceleration = f3_add(acceleration,fmj_physics_calculate_lateral_force(airframe, sa_curve));
     return acceleration;
 }
-
-void UpdateCarFrames(PlatformState* ps,CarFrameBuffer* buffer,FMJCurves f16lc,FMJCurves f16rlc,FMJCurves sa_curve,float timestep,f3 stick_input_throttle,PhysicsScene pscene)
+f32 angle = 0;
+void UpdateCarFrames(PlatformState* ps,CarFrameBuffer* buffer,FMJCurves f16lc,FMJCurves f16rlc,FMJCurves sa_curve,float timestep,f3 stick_input_throttle,PhysicsScene pscene,f32 dt)
+{
+    //NOTE(Ray):This is verlet integration.
+    for (int i = 0; i < buffer->car_frames.fixed.count; i++)
     {
-        //NOTE(Ray):This is verlet integration.
-        for (int i = 0; i < buffer->car_frames.fixed.count; i++)
-        {
-            CarFrame* carframe = fmj_stretch_buffer_check_out(CarFrame,&buffer->car_frames,i);
+        CarFrame* carframe = fmj_stretch_buffer_check_out(CarFrame,&buffer->car_frames,i);
 //            f3 localz = carframe.e.t.InverseTransformDirection(carframe.v);
-            f3 localz = fmj_3dtrans_world_to_local_dir(&carframe->e->transform,carframe->v);
-            float ground_speed = localz.z;
-            //NOTE(Ray):If an airframe is flying backwards 0 lift something is really wrong//
-            //VTOL aircraft and helo's this does not cover.
-            if (ground_speed < 0)
-            {
-                ground_speed = 0;
-            }
-            carframe->indicated_ground_speed = ground_speed;
-            f32 distance_to_maintain_from_ground = 0.05f;
+        f3 localz = fmj_3dtrans_world_to_local_dir(&carframe->e->transform,carframe->v);
+        float ground_speed = localz.z;
+        //NOTE(Ray):If an airframe is flying backwards 0 lift something is really wrong//
+        //VTOL aircraft and helo's this does not cover.
+        if (ground_speed < 0)
+        {
+            ground_speed = 0;
+        }
+        carframe->indicated_ground_speed = ground_speed;
+        f32 distance_to_maintain_from_ground = 0.05f;
 
-            AgentGroundedTestResult grounded_result = GroundCast(pscene,*carframe, carframe->e->transform.p, carframe->e->transform.up, distance_to_maintain_from_ground);
+        //TODO(ray):FIx raycasting against itself with filtering of some type.
+        AgentGroundedTestResult grounded_result = GroundCast(pscene,*carframe, carframe->e->transform.p, carframe->e->transform.up, distance_to_maintain_from_ground);
 
-            if (grounded_result.is_hit)
-            {
-                carframe->is_grounded = true;
-                carframe->last_track_normal = grounded_result.hit_n;
+        if (grounded_result.is_hit)
+        {
+            carframe->is_grounded = true;
+            carframe->last_track_normal = grounded_result.hit_n;
 
-                carframe->last_hit_p = grounded_result.hit_p;
-                f32 d = f3_distance(carframe->e->transform.p, carframe->last_hit_p);
-                f32 penetration_distance = (sus_height - 0.01f) - d;
-                carframe->e->transform.p.y = (carframe->e->transform.p.y + penetration_distance);
-            }
-            else
-            {
-                carframe->is_grounded = false;
-            }
+            carframe->last_hit_p = grounded_result.hit_p;
+            f32 d = f3_distance(carframe->e->transform.p, carframe->last_hit_p);
+            f32 penetration_distance = (sus_height - 0.01f) - d;
+            carframe->e->transform.p.y = (carframe->e->transform.p.y + penetration_distance);
+        }
+        else
+        {
+            carframe->is_grounded = false;
+        }
 
 //            f3 lsv = carframe->e.t.InverseTransformVector(carframe.v);
-            f3 lsv = fmj_3dtrans_world_to_local_dir(&carframe->e->transform,carframe->v);            
+        f3 lsv = fmj_3dtrans_world_to_local_dir(&carframe->e->transform,carframe->v);            
 //            lsv = nornormalizesafe(lsv, f3(0));
-            lsv = f3_normalize(lsv);
+        lsv = f3_normalize(lsv);
             
 //            f3 hsv = normalizesafe(f3(lsv.x, 0, lsv.z), f3(0));
-            f3 hsv = f3_normalize(f3_create(lsv.x, 0, lsv.z));
+        f3 hsv = f3_normalize(f3_create(lsv.x, 0, lsv.z));
     
 //            lsv = normalizesafe(f3(0, lsv.y, lsv.z), f3(0));
-            lsv = f3_normalize(f3_create(0, lsv.y, lsv.z));
+        lsv = f3_normalize(f3_create(0, lsv.y, lsv.z));
             
 //            f3 fsv = carframe->e.t.InverseTransformVector(carframe->e.t.forward);
-            f3 fsv =  carframe->e->transform.forward;
+        f3 fsv =  carframe->e->transform.forward;
 //            f3 usv = carframe->e.t.InverseTransformVector(f3.up);
-            f3 usv = carframe->e->transform.up;
+        f3 usv = carframe->e->transform.up;
 //            f3 rsv = carframe->e.t.InverseTransformVector(f3.right);
-            f3 rsv = carframe->e->transform.right;
+        f3 rsv = carframe->e->transform.right;
             
 //            float angle_of_attack = f3.SignedAngle(lsv, fsv, f3.right);
 //            float angle_of_slip = f3.SignedAngle(hsv, fsv, f3.up);
-            float angle_of_attack = f3_signed_angle(lsv, fsv, f3_create(1,0,0));
-            float angle_of_slip = f3_signed_angle(hsv, fsv, f3_create(0,1,0));
+        float angle_of_attack = f3_signed_angle(lsv, fsv, f3_create(1,0,0));
+        float angle_of_slip = f3_signed_angle(hsv, fsv, f3_create(0,1,0));
             
-            //Debug.DrawRay(carframe->e.p, lsv * 10, Color.cyan);
+        //Debug.DrawRay(carframe->e.p, lsv * 10, Color.cyan);
 //            Debug.DrawRay(carframe->e.p, hsv * 10, Color.cyan);
 
-            carframe->last_aoa = angle_of_attack;
-            carframe->last_aos = angle_of_slip;
+        carframe->last_aoa = angle_of_attack;
+        carframe->last_aos = angle_of_slip;
 
-            f3 push_p_roll = f3_create(0, 0, 0);
-            f3 roll_dir = f3_create(1, 0, 0);
-            float turn_power = 2;
+        f3 push_p_roll = f3_create(0, 0, 0);
+        f3 roll_dir = f3_create(1, 0, 0);
+        float turn_power = 2;
 
-            if(ps->input.keyboard.keys[keys.d].down)
-//            if (Input.GetKey(KeyCode.D))
+        if (ps->input.keyboard.keys[keys.e].down)
+        {
+            stick_input_throttle.z = 1;
+        }
+
+        f2 screen = f2_create(ps->window.dim.x, ps->window.dim.y);
+        f2 half_screen = f2_mul_s(screen,0.5f);
+
+        if(ps->input.mouse.lmb.down)
+        {
+            f2 touch_p;
+            touch_p = f2_create(ps->input.mouse.p.x,ps->input.mouse.p.y);
+            if (touch_p.x > half_screen.x)
             {
-                stick_input_throttle.x = -turn_power;
+                //Go right
+                f32 center_x_p = screen.x - half_screen.x;
+                f32 touch_offset_x = touch_p.x - half_screen.x;
+                f32 screen_distance_ratio = touch_offset_x / center_x_p;
+                    
+                stick_input_throttle.x = (-turn_power * screen_distance_ratio);
                 push_p_roll = f3_create(0.5f, 0, 0.5f);
             }
-
-            if(ps->input.keyboard.keys[keys.a].down)
-//            if (Input.GetKey(KeyCode.A))
+            if (touch_p.x < half_screen.x)
             {
-                stick_input_throttle.x = turn_power;
+                //Go left
+                f32 touch_offset_x = abs(touch_p.x - half_screen.x);
+                f32 screen_distance_ratio = touch_offset_x / half_screen.x;// - 1.0f;
+                stick_input_throttle.x = (turn_power * screen_distance_ratio);
                 push_p_roll = f3_create(-0.5f, 0, 0.5f);
             }
-
-            f2 screen = f2_create(ps->window.dim.x, ps->window.dim.y);
-            f2 half_screen = f2_mul_s(screen,0.5f);
-            
-
-            if(ps->input.mouse.lmb.released)
-//            if (Input.GetMouseButton(0))
-            {
-//                Debug.Log("Click detected");
-            }
-
-            if(ps->input.mouse.lmb.down)
-//            if(Input.GetMouseButton(0))
-            {
-                f2 touch_p;
-                touch_p = f2_create(ps->input.mouse.p.x,ps->input.mouse.p.y);
-                if (touch_p.x > half_screen.x)
-                {
-                    //Go right
-                    f32 center_x_p = screen.x - half_screen.x;
-                    f32 touch_offset_x = touch_p.x - half_screen.x;
-                    f32 screen_distance_ratio = touch_offset_x / center_x_p;
-                    
-                    stick_input_throttle.x = (-turn_power * screen_distance_ratio);
-                    push_p_roll = f3_create(0.5f, 0, 0.5f);
-                }
-                if (touch_p.x < half_screen.x)
-                {
-                    //Go left
-                    f32 touch_offset_x = abs(touch_p.x - half_screen.x);
-                    f32 screen_distance_ratio = touch_offset_x / half_screen.x;// - 1.0f;
-                    stick_input_throttle.x = (turn_power * screen_distance_ratio);
-                    push_p_roll = f3_create(-0.5f, 0, 0.5f);
-                }
-            }
+        }
 //            else if (ps->input.touchCount > 1 || Input.touchCount == 0)
-            {
-                // Go straight
-            }
+        {
+            // Go straight
+        }
 
-            
-            stick_input_throttle = f3_mul_s(stick_input_throttle,5.5f);
+        if(ps->input.keyboard.keys[keys.d].down)
+        {
+            stick_input_throttle.x = -turn_power;
+            push_p_roll = f3_create(0.5f, 0, 0.5f);
+            angle -= 0.1f;            
+        }
 
+        if(ps->input.keyboard.keys[keys.a].down)
+        {
+            stick_input_throttle.x = turn_power;
+            push_p_roll = f3_create(-0.5f, 0, 0.5f);
+            angle += 0.1f;
+        }
 
+        stick_input_throttle = f3_mul_s(stick_input_throttle,5.5f);
 
-//            UpdateOrientation(carframe,push_p,f3 push_dir,float force,f3 push_p_roll,f3 roll_dir,float roll_force,f32 delta_time)            
-            UpdateOrientation(carframe,f3_create(0, 1, -1),f3_create(0, -1, 0),-stick_input_throttle.y,push_p_roll,roll_dir,-stick_input_throttle.x,ps->time.delta_seconds);
+//        PhysicsCode::SetGlobalPose(carframe->rb,carframe->e->transform.p,quaternion_inverse(carframe->e->transform.r));
+        PhysicsCode::SetGlobalPose(carframe->rb,carframe->e->transform.p,carframe->e->transform.r);        
+        PhysicsCode::Simulate(&pscene,1,ps->time.delta_seconds);        
+        PhysicsCode::FetchResults(&pscene,true);            
 
-
-
+//        UpdateOrientation(carframe,push_p_roll,roll_dir,-stick_input_throttle.x,ps->time.delta_seconds);
+        
+        carframe->e->transform.local_r = f3_axis_angle(f3_create(0,1,0),angle);
 //Debug.Log("aoa: " + carframe.last_aoa + "aos: " + carframe.last_aos);
-            //linear forces
-
-            f3 Acceleration = fmj_physics_calculate_acceleration(*carframe,f16lc,f16rlc,sa_curve, stick_input_throttle);
+        //linear forces
+        fmj_3dtrans_update(&carframe->e->transform);
+            
+        f3 Acceleration = fmj_physics_calculate_acceleration(carframe,f16lc,f16rlc,sa_curve, stick_input_throttle);
     
 //            f3 Acceleration = CalculateAcceleration(carframe,f16lc,f16rlc,sa_curve, stick_input_throttle);
-            carframe->e->transform.p = f3_add(carframe->e->transform.p,f3_mul(f3_s_mul(timestep,f3_add_s(carframe->v,timestep)),f3_mul_s(Acceleration,0.5f)));
-            carframe->v = f3_add(carframe->v,f3_s_mul(timestep,Acceleration));
-            f3 NewAcceleration = fmj_physics_calculate_acceleration(*carframe,f16lc, f16rlc,sa_curve, stick_input_throttle);
-            carframe->v = f3_add(carframe->v,f3_mul_s(f3_s_mul(timestep,f3_sub(NewAcceleration,Acceleration)),0.5f));
-            carframe->last_accel = NewAcceleration;
+        f3 a = f3_mul_s(Acceleration,0.5f);
+        f3 b = f3_s_mul(timestep,a);
+        f3 c = f3_add(carframe->v,b);
+        
+        carframe->e->transform.local_p = f3_add(carframe->e->transform.local_p,f3_s_mul(timestep,c));
+        carframe->v = f3_add(carframe->v,f3_s_mul(timestep,Acceleration));
+        f3 NewAcceleration = fmj_physics_calculate_acceleration(carframe,f16lc, f16rlc,sa_curve, stick_input_throttle);
+        carframe->v = f3_add(carframe->v,f3_mul_s(f3_s_mul(timestep,f3_sub(NewAcceleration,Acceleration)),0.5f));
+        carframe->last_accel = NewAcceleration;
             
-            //Update visual only elements
+        //Update visual only elements
 //            UpdateWheelOrientationPosition(carframe,stick_input_throttle.x);
 
 //            Debug.DrawRay(carframe->e.p, normalize(carframe.lift_vector) * 5, Color.red);
@@ -478,9 +512,23 @@ void UpdateCarFrames(PlatformState* ps,CarFrameBuffer* buffer,FMJCurves f16lc,FM
 //            Debug.DrawRay(carframe->e.p, normalize(carframe.v) * 5, Color.black);
 
 //            Debug.DrawLine(carframe->e.p, carframe.last_p, Color.green,1000);
-            carframe->last_p = carframe->e->transform.p;
-        }
+        carframe->last_p = carframe->e->transform.local_p;
+
+//            PhysicsCode::SetGlobalPose(carframe->rb,carframe->e->transform.local_p,carframe->e->transform.local_r);
+        
+        FMJ3DTrans rbtrans = PhysicsCode::GetGlobalPose(carframe->rb);            
+//            FMJSceneObject* kart_physics_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,kart_instance_id);
+//            pxt = ((PxRigidDynamic*)kart_rbd.state)->getGlobalPose();
+//            new_p = f3_create(pxt.p.x,pxt.p.y,pxt.p.z);
+//            new_r = quaternion_create(pxt.q.x,pxt.q.y,pxt.q.z,pxt.q.w);
+
+//            carframe->e->transform.local_p = rbtrans.p;//carframe->e->transform.p;
+//        carframe->e->transform.local_r = rbtrans.r;
+//            fmj_stretch_buffer_check_in(&asset_ctx.scene_objects);
+//            pxt = ((PxRigidDynamic*)kart_rbd.state)->setGlobalPose();            
+            
     }
+}
 
 #if 0
 

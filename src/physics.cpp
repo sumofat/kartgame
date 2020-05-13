@@ -120,6 +120,13 @@ static PxDefaultAllocator gDefaultAllocatorCallback;
         shape->setSimulationFilterData(filterData);
     }
 
+    void SetQueryFilterData(PxShape* shape,u32 a)
+    {
+        PxFilterData filterData;
+        filterData.word0 = a; // word0 = own ID
+        shape->setQueryFilterData(filterData);
+    }
+
     void SetRigidBodyUserData(RigidBody body,void* data)
     {
         PxActor* a = (PxActor*)body.state;
@@ -136,7 +143,9 @@ static PxDefaultAllocator gDefaultAllocatorCallback;
         PxRigidBodyExt::updateMassAndInertia(*actor,1);
 
         result.mass = actor->getMass();
-        result.type = rigidbody_type_kinematic;
+        if(is_kinematic)
+            result.type = rigidbody_type_kinematic;
+        
         result.state = (void*)actor;
         result.p = p;
         return result;
@@ -325,6 +334,23 @@ static PxDefaultAllocator gDefaultAllocatorCallback;
         return true;
     }
 
+    void Simulate(PhysicsScene* scenes,uint32_t scene_count,float dt)
+    {
+        ASSERT(scenes);
+        for(int i = 0;i < scene_count;++i)
+        {
+            PhysicsScene* s = scenes + i;
+            ASSERT(s);
+            s->state->simulate(dt);
+        }
+    }
+
+    void FetchResults(PhysicsScene* s,bool blocking)
+    {
+        ASSERT(s);
+        s->state->fetchResults(blocking);
+    }
+
     PhysicsShapeMesh CreatePhyshicsMeshShape(void* vertex_data,u64 vertex_count,void* index_data,u64 index_count,u16 index_type,PhysicsMaterial material)
     {
         PhysicsShapeMesh result = {};
@@ -384,6 +410,7 @@ static PxDefaultAllocator gDefaultAllocatorCallback;
         result.tri_mesh = aTriangleMesh;
         physx::PxTriangleMeshGeometry mesh_geo = PxTriangleMeshGeometry(aTriangleMesh);
         result.state = physics->createShape(mesh_geo,&material.state,true);
+        
 
         //TODO(Ray):Add support for mesh convex geometry types. 
 /*
@@ -395,6 +422,12 @@ static PxDefaultAllocator gDefaultAllocatorCallback;
         return result;        
     }
 
+    void SetAngularDampening(RigidBody rb,f32 a)
+    {
+        ASSERT(rb.state);
+        ((PxRigidBody*)rb.state)->setAngularDamping(a);        
+    }
+    
     void AddTorqueForce(RigidBody rb,f3 dir)
     {
         PxVec3 v3 = {dir.x,dir.y,dir.z};
@@ -403,11 +436,31 @@ static PxDefaultAllocator gDefaultAllocatorCallback;
 
     void AddRelativeTorqueForce(RigidBody rb,FMJ3DTrans* transform,f3 dir)
     {
-        f3 local_torque = fmj_3dtrans_world_to_local_dir(transform,dir);
+        f3 local_torque = dir;//fmj_3dtrans_world_to_local_dir(transform,dir);
         PxVec3 v3 = {local_torque.x,local_torque.y,local_torque.z};        
         ((PxRigidBody*)rb.state)->addTorque(v3);
     }
-    
+
+    void SetGlobalPoseP(RigidBody rb,f3 p)
+    {
+        PxTransform pxt = PxTransform::PxTransform(p.x,p.y,p.z);        
+        ((PxRigidBody*)rb.state)->setGlobalPose(pxt);
+    }
+
+    void SetGlobalPose(RigidBody rb,f3 p,quaternion r)
+    {
+        PxTransform pxt = PxTransform::PxTransform(p.x,p.y,p.z,PxQuat(r.x,r.y,r.z,r.w));
+        ((PxRigidBody*)rb.state)->setGlobalPose(pxt);
+    }
+
+    FMJ3DTrans GetGlobalPose(RigidBody rb)
+    {
+        PxTransform pxt = ((PxRigidBody*)rb.state)->getGlobalPose();
+        FMJ3DTrans result = {};
+        result.p = f3_create(pxt.p.x,pxt.p.y,pxt.p.z);
+        result.r = quaternion_create(pxt.q.x,pxt.q.y,pxt.q.z,pxt.q.w);
+        return result;
+    }
 };
 
 
