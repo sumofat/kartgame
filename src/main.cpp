@@ -62,7 +62,8 @@ struct FMJAssetContext
 #include "fmj_scene.h"
 #include "assets.h"
 
-#include "koma.h"
+FMJAssetContext asset_ctx = {};
+
 #include "ping_game.h"
 
 #include "assets.cpp"
@@ -72,8 +73,17 @@ struct FMJAssetContext
 #include "animation.h"
 
 //Game files
+
+enum GameObjectType
+{
+    go_type_none,
+    go_type_kart,
+    go_type_track,
+};
+
 #include "carframe.h"
 //End game files
+#include "koma.h"
 
 #include "editor.h"
 #include "editor_scene_objects.h"
@@ -278,8 +288,6 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                         DXGI_FORMAT_R8G8B8A8_UNORM, g_pd3dSrvDescHeap,
         g_pd3dSrvDescHeap->GetCPUDescriptorHandleForHeapStart(),
         g_pd3dSrvDescHeap->GetGPUDescriptorHandleForHeapStart());
-
-
     
     //init tables
     fmj_asset_init(&asset_tables);
@@ -321,7 +329,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     physics_material = PhysicsCode::CreateMaterial(0.5f, 0.5f, 0.5f);
     PhysicsCode::SetRestitutionCombineMode(physics_material,physx::PxCombineMode::eMIN);
     PhysicsCode::SetFrictionCombineMode(physics_material,physx::PxCombineMode::eMIN);
-    scene = PhysicsCode::CreateScene(KomaFilterShader);
+    scene = PhysicsCode::CreateScene(CarFrameFilterShader);
     GamePiecePhysicsCallback* e = new GamePiecePhysicsCallback();
     PhysicsCode::SetSceneCallback(&scene, e);
     //END PHYSICS SETUP
@@ -536,7 +544,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     f3 max_screen_p = f3_screen_to_world_point(rc.projection_matrix,rc.matrix,ps->window.dim,top_right_screen_xy,0);
     f3 lower_screen_p = f3_screen_to_world_point(rc.projection_matrix,rc.matrix,ps->window.dim,bottom_left_xy,0);
 
-    FMJAssetContext asset_ctx = {};
+
     asset_ctx.scene_objects = fmj_stretch_buffer_init(100,sizeof(FMJSceneObject),8);
     //NOTE(Ray):We should make it the largest size of al the gameobjects to use it with any game object.
     asset_ctx.so_to_go = fmj_anycache_init(1024,sizeof(GOHandle),sizeof(FMJSceneObject*),false);
@@ -599,6 +607,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     
     FMJSceneObject* track_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,track_instance_id);
     track_so->name = fmj_string_create("track so",asset_ctx.perm_mem);
+    track_so->data = (u32*)go_type_kart;        
     FMJSceneObject* kart_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,kart_instance_id);
     kart_so->name = fmj_string_create("kart so",asset_ctx.perm_mem);
     
@@ -618,7 +627,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     FMJAssetMesh track_collision_mesh = track_mesh;
     PhysicsShapeMesh track_physics_mesh = CreatePhysicsMeshShape(&track_mesh,physics_material);
     PhysicsCode::SetQueryFilterData((PxShape*)track_physics_mesh.state,(u32)go_type_track);    
-
+    PhysicsCode::SetSimulationFilterData((PxShape*)track_physics_mesh.state,go_type_track,0xFF);
+            
 	track_collision_mesh.vertex_data   = (f32*)track_physics_mesh.tri_mesh->getVertices();
 	track_collision_mesh.vertex_count  = track_physics_mesh.tri_mesh->getNbVertices() * 3;
 
@@ -656,7 +666,10 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 
     PhysicsShapeBox phyx_box_shape = PhysicsCode::CreateBox(f3_create(1.2f,0.2f,1.2f),physics_material);
         
-    RigidBody track_rbd = PhysicsCode::CreateStaticRigidbody(track_trans.p,track_physics_mesh.state);        
+    RigidBody track_rbd = PhysicsCode::CreateStaticRigidbody(track_trans.p,track_physics_mesh.state);
+    u64* instance_id_ptr = (u64*)track_instance_id;
+    PhysicsCode::SetRigidBodyUserData(track_rbd,instance_id_ptr);
+    
 //    RigidBody kart_rbd = PhysicsCode::CreateDynamicRigidbody(kart_trans.p,phyx_box_shape.state,false);//kart_physics_mesh.state,true);
 
     PhysicsCode::AddActorToScene(scene, track_rbd);    
@@ -719,7 +732,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     CarFrameDescriptorBuffer car_descriptor_buffer;
     CarFrameDescriptor d = {};
     d.mass = 400;
-    d.max_thrust = 2000;
+    d.max_thrust = 15000;
     d.maximum_wheel_angle = 33;//degrees
     //d.count = 1;
     d.physics_material = physics_material;
@@ -872,8 +885,14 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 //Render camera stated etc..  is finalized        
 
 //        fmj_camera_orbit(&asset_ctx,&rc,ps->input,ps->time.delta_seconds,kart_physics_so->transform,2);
-        fmj_camera_orbit(&asset_ctx,&rc,ps->input,ps->time.delta_seconds,player_car.e->transform,2);        
-//        fmj_camera_chase(&asset_ctx,&rc,ps->input,ps->time.delta_seconds,kart_physics_so->transform,f3_create(0,3,-3));
+//        fmj_camera_orbit(&asset_ctx,&rc,ps->input,ps->time.delta_seconds,player_car.e->transform,2);
+//        f3 f = fmj_3dtrans_world_to_local_dir(&player_car.e->transform,player_car.e->transform.forward);
+
+//        f3 go = fmj_3dtrans_local_to_world_pos(&player_car.e->transform,f3_create(0,3,-3));
+//        f3 f = f3_mul_s(f3_negate(quaternion_forward(player_car.e->transform.r),3);
+        fmj_camera_chase(&asset_ctx,&rc,ps->input,ps->time.delta_seconds,player_car.e->transform,f3_create(0,3,0));
+        
+//        fmj_camera_chase(&asset_ctx,&rc,ps->input,ps->time.delta_seconds,player_car.e->transform,f3_create(f.x,f.y + 3,-f.z - 3));
 //        fmj_camera_free(&asset_ctx,&rc,ps->input,ps->time.delta_seconds);
         
 //End game code
@@ -1012,3 +1031,4 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     }
     return 0;
 }
+

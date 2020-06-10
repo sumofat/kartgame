@@ -1,11 +1,5 @@
-enum GameObjectType
-{
-    go_type_none,
-    go_type_kart,
-    go_type_track,
-};
 
-PxFilterFlags KomaFilterShader(
+PxFilterFlags CarFrameFilterShader(
     PxFilterObjectAttributes attributes0, PxFilterData filterData0,
     PxFilterObjectAttributes attributes1, PxFilterData filterData1,
     PxPairFlags& pairFlags, const void* constantBlock, PxU32 constantBlockSize)
@@ -21,7 +15,7 @@ PxFilterFlags KomaFilterShader(
 
     // trigger the contact callback for pairs (A,B) where
     // the filtermask of A contains the ID of B and vice versa.
-//    if((filterData0.word0 & filterData1.word1) && (filterData1.word0 & filterData0.word1))
+    if((filterData0.word0 & filterData1.word1) && (filterData1.word0 & filterData0.word1))
     {
 		pairFlags |= PxPairFlag::eNOTIFY_TOUCH_FOUND;
         pairFlags |= PxPairFlag::eNOTIFY_TOUCH_PERSISTS;
@@ -57,16 +51,63 @@ class GamePiecePhysicsCallback : public PxSimulationEventCallback
 
 	void onContact(const PxContactPairHeader& pairHeader, const PxContactPair* pairs, PxU32 nbPairs) override
 	{
+
+        const PxU32 bufferSize = 64;
+        PxContactPairPoint contacts[bufferSize];
+        
 		for (PxU32 i = 0; i < nbPairs; i++)
 		{
 			const PxContactPair& cp = pairs[i];
+            u64 k_i = (u64)pairHeader.actors[0]->userData;
+            FMJSceneObject* so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,k_i);
+            
+            u64 k2_i = (u64)pairHeader.actors[1]->userData;
+            FMJSceneObject* so2 = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,k2_i);
+
+            PxU32 nbContacts = pairs[i].extractContacts(contacts, bufferSize);
+            PxVec3 normal = contacts[0].normal;
+            f3 n = f3_create(normal.x,normal.y,normal.z);                            
+            f3 v = {0};
+            CarFrame* carframe;
+            GOHandle handle;
+            if((GameObjectType*)so->data == (GameObjectType*)go_type_kart)
+            {
+                handle = fmj_anycache_get(GOHandle,&asset_ctx.so_to_go,so);
+                carframe = fmj_stretch_buffer_check_out(CarFrame,handle.buffer,handle.index);
+                v =  carframe->v;
+//                fmj_stretch_buffer_check_in(handle.buffer);
+            }
+            else if((GameObjectType*)so2->data == (GameObjectType*)go_type_kart)
+            {
+                handle = fmj_anycache_get(GOHandle,&asset_ctx.so_to_go,so);
+                carframe = fmj_stretch_buffer_check_out(CarFrame,handle.buffer,handle.index);
+                v = carframe->v;
+//                fmj_stretch_buffer_check_in(handle.buffer);                
+            }
+            else
+            {
+                ASSERT(false);
+            }
+            f3 rv = f3_reflect(v,n);
+            carframe->v = rv;
+
+            fmj_stretch_buffer_check_in(handle.buffer);                            
+            
+//            for(PxU32 j=0; j < nbContacts; j++)
+            {
+//                PxVec3 point = contacts[j].position;
+//                PxVec3 impulse = contacts[j].impulse;
+//                PxVec3 normal = contacts[j].normal;
+//                PxU32 internalFaceIndex0 = contacts[j].internalFaceIndex0;
+//                PxU32 internalFaceIndex1 = contacts[j].internalFaceIndex1;
+                
+                int a =0;
+
+            }            
             
 		}
 	}
 };
-
-
-
 
 struct SpriteTrans
 {

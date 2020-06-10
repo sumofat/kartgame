@@ -65,12 +65,16 @@ void fmj_camera_chase(FMJAssetContext*ctx,RenderCamera* rc,Input input,f32 delta
     fmj_3dtrans_update(&target);
     fmj_3dtrans_update(&rc->ot);
     f3 t_p = target.p;
-    quaternion t_r = target.r;
-    f3 p = f3_add(t_p,offset);
+    f3 n_f = f3_negate(target.forward);
+    
+    f3 target_f = f3_mul_s(n_f,3);
+    target_f = f3_add(target_f,offset);
+    f3 p = f3_add(t_p,target_f);
     f3 f = target.forward;
     f3 look_point_world = f3_add(t_p,f);
-    f3 cam_dir = f3_sub(rc->ot.p,look_point_world);
+    f3 cam_dir = f3_sub(p,look_point_world);
 
+    
     rc->ot.p = p;
     rc->ot.r = quaternion_look_rotation(cam_dir,f3_create(0,1,0));
     

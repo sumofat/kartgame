@@ -90,7 +90,6 @@ void kart_init_car_frames(CarFrameBuffer* buffer,CarFrameDescriptorBuffer buffer
     for (int i = 0; i < buffer_desc.descriptors.fixed.count; i++)
     {
         CarFrameDescriptor desc = fmj_stretch_buffer_get(CarFrameDescriptor,&buffer_desc.descriptors,i);
-//        GameObject prefab_instance = desc.prefab;
 //        for (int j = 0; j < desc.count; j++)
         {
             CarFrame new_airframe = {};//new CarFrame();
@@ -104,8 +103,7 @@ void kart_init_car_frames(CarFrameBuffer* buffer,CarFrameDescriptorBuffer buffer
 
             //TODO(Ray):Dont sotre the so here store the id
             FMJSceneObject* so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx->scene_objects,instance_id);            
-//            GameObject go  = Object.Instantiate(prefab_instance) as GameObject;
-//            new_airframe.e = AddEntity(repo, go.transform);
+            so->data = (u32*)go_type_kart;
             new_airframe.e = so;
             
             new_airframe.last_v = f3_create_f(0);
@@ -113,25 +111,26 @@ void kart_init_car_frames(CarFrameBuffer* buffer,CarFrameDescriptorBuffer buffer
             new_airframe.total_lift = f3_create(0, 100, 0);
             new_airframe.thrust_vector = f3_create(0, 0, 0);
             new_airframe.lift_vector = f3_create(0, 1, 0);
+            
             PhysicsShapeBox phyx_box_shape = PhysicsCode::CreateBox(f3_create(1.2f,0.2f,1.2f),desc.physics_material);
             PhysicsCode::SetQueryFilterData((PxShape*)phyx_box_shape.state,(u32)go_type_kart);
             RigidBody rbd = PhysicsCode::CreateDynamicRigidbody(so->transform.p,phyx_box_shape.state,false);
             new_airframe.rb = rbd;            
-            PhysicsCode::AddActorToScene(desc.physics_scene, new_airframe.rb);
-            //PhysicsCode::UpdateRigidBodyMassAndInertia(kart_rbd,1);
-//            PhysicsCode::SetMass(kart_rbd,1);
 
-//            new_airframe.rb = go.AddComponent<Rigidbody>();
+            PhysicsCode::SetSimulationFilterData((PxShape*)phyx_box_shape.state,go_type_kart,0xFF);
+            u64* instance_id_ptr = (u64*)instance_id;
+            PhysicsCode::SetRigidBodyUserData(new_airframe.rb,instance_id_ptr);
+            
+            PhysicsCode::AddActorToScene(desc.physics_scene, new_airframe.rb);
+
             PhysicsCode::SetAngularDampening(new_airframe.rb,3.1);
-//            new_airframe.rb.angularDrag = 3.1f;
             
             new_airframe.repulsive_force_area = 24;
-//            new_airframe.rb.useGravity = false;
+
             PhysicsCode::DisableGravity((physx::PxActor*)new_airframe.rb.state,false);            
             new_airframe.sus_height = sus_height;
             PhysicsCode::LockRigidPosition(new_airframe.rb);
-//            new_airframe.rb.constraints = RigidbodyConstraints.FreezePosition;
-//            new_airframe.e.is_rigidbody_rotation = true;
+
             
 //            new_airframe.wheel_transforms = new List<Transform>();
 /*
@@ -182,7 +181,7 @@ f3 fmj_physics_calculate_drag(CarFrame airframe,FMJCurves curves)
     //BEGIN DRAG
     //TODO(Ray):Make a curve editor for saving curves to use for evaultion
     //and fine tuning.
-    f32 coeffecient_of_drag = 10.5f;//fmj_animation_curve_evaluate(curves,airframe.last_aoa);
+    f32 coeffecient_of_drag = 3.5f;//fmj_animation_curve_evaluate(curves,airframe.last_aoa);
 
     //NOTE(Ray):We do not take into account  changing  areas based on rotation.
     //cross section in relation to the vector of movement        
@@ -229,7 +228,7 @@ f3 fmj_physics_calculate_lateral_force(CarFrame cf,FMJCurves slip_angle_curve)
         f32 slipAngle = degrees(atan(latVel / abs(forVel)));// * Mathf.Rad2Deg;
         if (isnan(slipAngle)) slipAngle = 0;
 
-        evaluated_force = fmj_animation_curve_evaluate(slip_angle_curve,abs(slipAngle));
+        evaluated_force = 0;//fmj_animation_curve_evaluate(slip_angle_curve,abs(slipAngle));
 
 //        f32 sign = Mathf.Sign((int)slipAngle);
         f32 sign = signbit(slipAngle);
