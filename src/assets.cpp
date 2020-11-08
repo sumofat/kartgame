@@ -1,7 +1,8 @@
 
 void fmj_asset_init(AssetTables* asset_tables)
 {
-    asset_tables->materials = fmj_anycache_init(4096,sizeof(FMJRenderMaterial),sizeof(u64),true);                                  
+    asset_tables->materials = fmj_anycache_init(4096,sizeof(FMJRenderMaterial),sizeof(u64),true);
+    
     asset_tables->sprites = fmj_stretch_buffer_init(1,sizeof(FMJSprite),8);
     asset_tables->textures = fmj_stretch_buffer_init(1,sizeof(LoadedTexture),8);    
     //NOTE(RAY):If we want to make this platform independendt we would just make a max size of all platofrms
@@ -22,7 +23,6 @@ FMJAssetModel fmj_asset_model_create(FMJAssetContext* ctx)
 
 u64 fmj_asset_texture_add(FMJAssetContext* ctx,LoadedTexture texture)
 {
-
     u64 tex_id = fmj_stretch_buffer_push(&ctx->asset_tables->textures,&texture);    
     D12RendererCode::Texture2D(&texture,tex_id);
     //TODO(ray):Add assert to how many textures are allowed in acertain heap that
@@ -30,6 +30,16 @@ u64 fmj_asset_texture_add(FMJAssetContext* ctx,LoadedTexture texture)
 //texid is a slot on the gpu heap
 //    ASSERT(tex_id < MAX_TEX_ID_FOR_HEAP)
     return tex_id;
+}
+
+//TODO(Ray):Ensure thread safety
+u64 fmj_asset_material_add(FMJAssetContext* ctx,FMJRenderMaterial material)
+{
+    u64 result = ctx->asset_tables->material_count;
+    material.id = ctx->asset_tables->material_count;
+    fmj_anycache_add_to_free_list(&ctx->asset_tables->materials,(void*)&ctx->asset_tables->material_count,&material);
+    ++ctx->asset_tables->material_count;
+    return result;
 }
 
 f2 fmj_asset_create_mesh_from_cgltf_mesh(FMJAssetContext* ctx,cgltf_mesh* ma,u64 material_id)
@@ -604,4 +614,10 @@ bool fmj_asset_get_mesh_id_by_name(char* name,FMJAssetContext* ctx,FMJSceneObjec
     
     return is_found;
 }
+
+FMJRenderMaterial fmj_asset_get_material_by_id(FMJAssetContext* ctx,u64 mat_id)
+{
+    return fmj_anycache_get(FMJRenderMaterial,&ctx->asset_tables->materials,&mat_id);
+}
+
 

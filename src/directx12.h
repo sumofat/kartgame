@@ -365,9 +365,7 @@ struct D12ResourceStateEntry
     D3D12_RESOURCE_STATES state;
 };
 
-
 #include "D12ResourceState.h"
-
 
 namespace D12RendererCode
 {

@@ -226,13 +226,20 @@ f3 fmj_physics_calculate_lateral_force(CarFrame cf,FMJCurves slip_angle_curve)
         f32 latVel = latVector3.x;
         f32 evaluated_force = 0;
         f32 slipAngle = degrees(atan(latVel / abs(forVel)));// * Mathf.Rad2Deg;
-        if (isnan(slipAngle)) slipAngle = 0;
+        if (isnan(slipAngle))
+        {
+            slipAngle = 0;            
+        }
 
         evaluated_force = 0;//fmj_animation_curve_evaluate(slip_angle_curve,abs(slipAngle));
 
 //        f32 sign = Mathf.Sign((int)slipAngle);
         f32 sign = signbit(slipAngle);
-        if (isnan(evaluated_force)) evaluated_force = 0;
+        if (isnan(evaluated_force))
+        {
+            evaluated_force = 0;            
+        }
+
         if (sign == 0) sign = 1;
         float no_of_tires = 4;
 
@@ -403,16 +410,26 @@ void UpdateCarFrames(PlatformState* ps,CarFrameBuffer* buffer,FMJCurves f16lc,FM
         }
 
 //            f3 lsv = carframe->e.t.InverseTransformVector(carframe.v);
-        f3 lsv = fmj_3dtrans_world_to_local_dir(&carframe->e->transform,carframe->v);            
+        f3 lsv = fmj_3dtrans_world_to_local_dir(&carframe->e->transform,carframe->v);
+        if(isnan(lsv.x))
+        {
+            ASSERT(false);
+        }        
 //            lsv = nornormalizesafe(lsv, f3(0));
         lsv = f3_normalize(lsv);
-            
+        if(isnan(lsv.x))
+        {
+            ASSERT(false);
+        }                    
 //            f3 hsv = normalizesafe(f3(lsv.x, 0, lsv.z), f3(0));
         f3 hsv = f3_normalize(f3_create(lsv.x, 0, lsv.z));
     
 //            lsv = normalizesafe(f3(0, lsv.y, lsv.z), f3(0));
         lsv = f3_normalize(f3_create(0, lsv.y, lsv.z));
-            
+        if(isnan(lsv.x))
+        {
+            ASSERT(false);
+        }                    
 //            f3 fsv = carframe->e.t.InverseTransformVector(carframe->e.t.forward);
         f3 fsv =  carframe->e->transform.forward;
 //            f3 usv = carframe->e.t.InverseTransformVector(f3.up);
@@ -424,7 +441,14 @@ void UpdateCarFrames(PlatformState* ps,CarFrameBuffer* buffer,FMJCurves f16lc,FM
 //            float angle_of_slip = f3.SignedAngle(hsv, fsv, f3.up);
         float angle_of_attack = f3_signed_angle(lsv, fsv, f3_create(1,0,0));
         float angle_of_slip = f3_signed_angle(hsv, fsv, f3_create(0,1,0));
-            
+        if(isnan(angle_of_slip))
+        {
+            ASSERT(false);
+        }
+        if(isnan(angle_of_attack))
+        {
+            ASSERT(false);
+        }
         //Debug.DrawRay(carframe->e.p, lsv * 10, Color.cyan);
 //            Debug.DrawRay(carframe->e.p, hsv * 10, Color.cyan);
 

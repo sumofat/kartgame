@@ -42,8 +42,6 @@ VertexShaderOutput main(VertexPosColor IN)
 	         m2.x,m2.y,m2.z,m2.w,
 	         m3.x,m3.y,m3.z,m3.w};
 
-//m = transpose(m);
-
     float4 world_p = mul(float4(IN.Position,1.0f),m);
 
     OUT.m_color = float4(m0.xyz,(float)offset);    

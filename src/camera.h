@@ -21,6 +21,7 @@ struct RenderCamera
     f32 fov;//perspective only
     f2 near_far_planes;
     u64 matrix_id;
+    u64 projection_matrix_id;
 };
 
 void fmj_camera_free(FMJAssetContext*ctx,RenderCamera* rc,Input input,f32 delta_seconds)

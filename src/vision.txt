@@ -1,3 +1,24 @@
+///
+Just get a basic racing game started  minimum features are...
+
+ENGINE:
+1. Load and change models at runtime.
+2. Change the properties of racing at runtime for each type of racer.
+3. Change the AI properties at runtime.
+4. Simple deffered renderer with basic lighting similar to what we have done before.
+5. 2D and 3D animation API.
+
+GAME:
+1. position calculated.
+2. Using wheels and friction model
+3. Simple AI opponents.
+4. Simple UI for choosing racers and main menu.
+
+SUPPLEMENTARY GOALS:
+1. Try using a render graph model for rendering.  Looking for nice lighting and colors.
+2. Keep It Simple and Stupid.
+
+///----- old
 3d racing game where people buy weapons and items before the match based on their
 previous winnings and tires can get shot out
 racing to gain poisition and inflict damage to other racers cars... tires blown etcc.

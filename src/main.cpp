@@ -1,3 +1,5 @@
+#define KART_GAME
+
 #include<windows.h>
 #include <Xinput.h>
 #include <dsound.h>
@@ -25,11 +27,6 @@ extern "C"{
 #include "sound_interface.h"
 #include "sound_interface.cpp"
 
-#include "physics.h"
-#include "physics.cpp"
-
-#include "platform_win32.h"
-
 struct GOHandle
 {
     u64 index;
@@ -40,6 +37,7 @@ struct GOHandle
 struct AssetTables
 {
     AnyCache materials;
+    u64 material_count;
     FMJStretchBuffer sprites;
     FMJStretchBuffer textures;
     FMJStretchBuffer vertex_buffers;
@@ -60,39 +58,11 @@ struct FMJAssetContext
 }typedef FMJAssetContext;
 
 #include "fmj_scene.h"
+#include "fmj_scene_manager.h"
 #include "assets.h"
 
-FMJAssetContext asset_ctx = {};
-
-#include "ping_game.h"
-
-#include "assets.cpp"
-
-#include "camera.h"
-
-#include "animation.h"
-
-//Game files
-
-enum GameObjectType
-{
-    go_type_none,
-    go_type_kart,
-    go_type_track,
-};
-
-#include "carframe.h"
-//End game files
-#include "koma.h"
-
-#include "editor.h"
-#include "editor_scene_objects.h"
-
-
-//BEGIN FMJSCENE TEST
-
-FMJSceneBuffer scenes;
-FMJStretchBuffer render_command_buffer;
+#include "physics.h"
+#include "physics.cpp"
 
 PhysicsShapeMesh CreatePhysicsMeshShape(FMJAssetMesh* mesh,PhysicsMaterial material)
 {
@@ -115,6 +85,59 @@ PhysicsShapeMesh CreatePhysicsMeshShape(FMJAssetMesh* mesh,PhysicsMaterial mater
     }
     return result;
 }
+
+
+#include "platform_win32.h"
+
+FMJAssetContext asset_ctx = {};
+
+FMJFixedBuffer ui_fixed_quad_buffer;
+
+
+void SetSpriteNonVisible(void* node)
+{
+    FMJUINode* a = (FMJUINode*)node;
+//    SpriteTrans* st = fmj_fixed_buffer_get_ptr(SpriteTrans,&ui_fixed_quad_buffer,a->st_id);    
+//    st->sprite.is_visible = false;
+}
+
+#include "assets.cpp"
+#include "camera.h"
+#include "animation.h"
+#include "fmj_sprite.h"
+#include "renderer.h"
+//Game files
+
+RenderCamera rc = {};
+RenderCamera rc_ui = {};
+
+enum GameObjectType
+{
+    go_type_none,
+    go_type_kart,
+    go_type_track,
+};
+
+static SoundClip bgm_soundclip;
+PhysicsMaterial physics_material;
+f32 ground_friction = 0.0032f;
+bool prev_lmb_state = false;
+
+#ifdef KART_GAME
+#include "kartgame.h"
+#else
+#include "two_d_test_game.h"
+#endif
+
+//End game files
+
+#include "editor.h"
+#include "editor_scene_objects.h"
+
+//BEGIN FMJSCENE TEST
+
+FMJSceneBuffer scenes;
+FMJRender render;
 
 void fmj_scene_process_children_recrusively(FMJSceneObject* so,u64 c_mat,u64 p_mat,FMJAssetContext* ctx)
 {
@@ -171,7 +194,7 @@ void fmj_scene_process_children_recrusively(FMJSceneObject* so,u64 c_mat,u64 p_m
                     com.model_matrix_id = child_so->m_id;
                     com.camera_matrix_id = c_mat;
                     com.perspective_matrix_id = p_mat;
-                    fmj_stretch_buffer_push(&render_command_buffer,(void*)&com);
+                    fmj_stretch_buffer_push(&render.command_buffer,(void*)&com);
                     fmj_stretch_buffer_check_in(&ctx->asset_tables->meshes);                    
                 }                
             }
@@ -292,7 +315,7 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     //init tables
     fmj_asset_init(&asset_tables);
 
-    render_command_buffer = fmj_stretch_buffer_init(1,sizeof(FMJRenderCommand),8);
+
     
     //Load a texture with all mip maps calculated
     //load texture to mem from disk
@@ -302,7 +325,16 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     FMJMemoryArena permanent_strings = fmj_arena_allocate(FMJMEGABYTES(1));
     FMJMemoryArena temp_strings = fmj_arena_allocate(FMJMEGABYTES(1));    
     FMJString base_path_to_data = fmj_string_create("../data/Desktop/",&permanent_strings);
-    
+
+    asset_ctx.scene_objects = fmj_stretch_buffer_init(100,sizeof(FMJSceneObject),8);
+    //NOTE(Ray):We should make it the largest size of al the gameobjects to use it with any game object.
+    asset_ctx.so_to_go = fmj_anycache_init(1024,sizeof(GOHandle),sizeof(FMJSceneObject*),false);
+
+    //TODO(Ray):The pointers here are not good we need to init this somehwere else.
+    asset_ctx.asset_tables = &asset_tables;
+    asset_ctx.perm_mem = &permanent_strings;
+    asset_ctx.temp_mem = &temp_strings;    
+
     //setup audio system and load sound assets.
     SoundAssetCode::Init();
     SoundCode::Init();
@@ -325,117 +357,9 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     SoundAssetCode::GetEvent("event:/bgm",&bgm_soundclip);
     //end audio setup
 
-    //BEGIN Setup physics stuff
-    physics_material = PhysicsCode::CreateMaterial(0.5f, 0.5f, 0.5f);
-    PhysicsCode::SetRestitutionCombineMode(physics_material,physx::PxCombineMode::eMIN);
-    PhysicsCode::SetFrictionCombineMode(physics_material,physx::PxCombineMode::eMIN);
-    scene = PhysicsCode::CreateScene(CarFrameFilterShader);
-    GamePiecePhysicsCallback* e = new GamePiecePhysicsCallback();
-    PhysicsCode::SetSceneCallback(&scene, e);
-    //END PHYSICS SETUP
-
-    D12RendererCode::CreateDefaultRootSig();
-    D12RendererCode::CreateDefaultDepthStencilBuffer(ps->window.dim);
-    
-    D3D12_INPUT_ELEMENT_DESC input_layout[] = {
-        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "COLOR"   , 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,       0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-    };
-    
-    D3D12_INPUT_ELEMENT_DESC input_layout_mesh[] = {
-        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "NORMAL"  , 0, DXGI_FORMAT_R32G32B32_FLOAT,   1, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },        
-//        { "COLOR"   , 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,       2, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-    };
-    
-    D3D12_INPUT_ELEMENT_DESC input_layout_vu_mesh[] = {
-        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,       1, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-    };
-    
-    D3D12_INPUT_ELEMENT_DESC input_layout_pn_mesh[] = {
-        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "NORMAL"  , 0, DXGI_FORMAT_R32G32B32_FLOAT,   1, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },        
-    };
-    
-    uint32_t input_layout_count = _countof(input_layout);
-    uint32_t input_layout_count_mesh = _countof(input_layout_mesh);
-    uint32_t input_layout_vu_count_mesh = _countof(input_layout_vu_mesh);
-    uint32_t input_layout_pn_count_mesh = _countof(input_layout_pn_mesh);            
-    // Create a root/shader signature.
-
-    char* vs_file_name = "vs_test.hlsl";
-    char* vs_mesh_vu_name = "vs_vu.hlsl";
-    char* vs_mesh_file_name = "vs_test_mesh.hlsl";
-    char* vs_pn_file_name = "vs_pn.hlsl";
-    
-    char* fs_file_name = "ps_test.hlsl";
-    char* fs_color_file_name = "fs_color.hlsl";
-    RenderShader rs = D12RendererCode::CreateRenderShader(vs_file_name,fs_file_name);
-    RenderShader mesh_rs = D12RendererCode::CreateRenderShader(vs_mesh_file_name,fs_file_name);
-    RenderShader mesh_vu_rs = D12RendererCode::CreateRenderShader(vs_mesh_vu_name,fs_file_name);
-    RenderShader rs_color = D12RendererCode::CreateRenderShader(vs_file_name,fs_color_file_name);
-    RenderShader mesh_pn_color = D12RendererCode::CreateRenderShader(vs_pn_file_name,fs_color_file_name);
-    
-    PipelineStateStream ppss = D12RendererCode::CreateDefaultPipelineStateStreamDesc(input_layout,input_layout_count,rs.vs_blob,rs.fs_blob);
-    ID3D12PipelineState* pipeline_state = D12RendererCode::CreatePipelineState(ppss);    
-
-    PipelineStateStream color_ppss = D12RendererCode::CreateDefaultPipelineStateStreamDesc(input_layout,input_layout_count,rs.vs_blob,rs_color.fs_blob);
-    ID3D12PipelineState* color_pipeline_state = D12RendererCode::CreatePipelineState(color_ppss);
-    
-    PipelineStateStream color_ppss_mesh = D12RendererCode::CreateDefaultPipelineStateStreamDesc(input_layout_mesh,input_layout_count_mesh,mesh_rs.vs_blob,mesh_rs.fs_blob,true);
-    ID3D12PipelineState* color_pipeline_state_mesh = D12RendererCode::CreatePipelineState(color_ppss_mesh);
-
-    PipelineStateStream vu_ppss_mesh = D12RendererCode::CreateDefaultPipelineStateStreamDesc(input_layout_vu_mesh,input_layout_vu_count_mesh,mesh_vu_rs.vs_blob,mesh_vu_rs.fs_blob,true);
-    ID3D12PipelineState* vu_pipeline_state_mesh = D12RendererCode::CreatePipelineState(vu_ppss_mesh);        
-
-    PipelineStateStream pn_ppss_mesh = D12RendererCode::CreateDefaultPipelineStateStreamDesc(input_layout_pn_mesh,input_layout_pn_count_mesh,mesh_pn_color.vs_blob,mesh_pn_color.fs_blob,true);
-    ID3D12PipelineState* pn_pipeline_state_mesh = D12RendererCode::CreatePipelineState(pn_ppss_mesh);        
-    
-    FMJRenderMaterial base_render_material = {0};
-    base_render_material.pipeline_state = (void*)pipeline_state;
-    base_render_material.viewport_rect = f4_create(0,0,ps->window.dim.x,ps->window.dim.y);
-    base_render_material.scissor_rect = f4_create(0,0,LONG_MAX,LONG_MAX);
-    base_render_material.id = material_count;
-    fmj_anycache_add_to_free_list(&asset_tables.materials,(void*)&material_count,&base_render_material);
-    material_count++;
-
-    FMJRenderMaterial color_render_material = base_render_material;
-    color_render_material.pipeline_state = (void*)color_pipeline_state;
-    color_render_material.viewport_rect = f4_create(0,0,ps->window.dim.x,ps->window.dim.y);
-    color_render_material.scissor_rect = f4_create(0,0,LONG_MAX,LONG_MAX);    
-    color_render_material.id = material_count;
-    fmj_anycache_add_to_free_list(&asset_tables.materials,(void*)&material_count,&color_render_material);    
-    material_count++;
-
-    FMJRenderMaterial color_render_material_mesh = color_render_material;
-    color_render_material_mesh.pipeline_state = (void*)color_pipeline_state_mesh;
-    color_render_material_mesh.viewport_rect = f4_create(0,0,ps->window.dim.x,ps->window.dim.y);
-    color_render_material_mesh.scissor_rect = f4_create(0,0,LONG_MAX,LONG_MAX);    
-    color_render_material_mesh.id = material_count;
-    fmj_anycache_add_to_free_list(&asset_tables.materials,(void*)&material_count,&color_render_material_mesh);    
-    material_count++;
-
-    FMJRenderMaterial vu_render_material_mesh = color_render_material;
-    vu_render_material_mesh.pipeline_state = (void*)vu_pipeline_state_mesh;
-    vu_render_material_mesh.viewport_rect = f4_create(0,0,ps->window.dim.x,ps->window.dim.y);
-    vu_render_material_mesh.scissor_rect = f4_create(0,0,LONG_MAX,LONG_MAX);    
-    vu_render_material_mesh.id = material_count;
-    fmj_anycache_add_to_free_list(&asset_tables.materials,(void*)&material_count,&vu_render_material_mesh);    
-    material_count++;
-
-    FMJRenderMaterial pn_render_material_mesh = color_render_material;
-    pn_render_material_mesh.pipeline_state = (void*)pn_pipeline_state_mesh;
-    pn_render_material_mesh.viewport_rect = f4_create(0,0,ps->window.dim.x,ps->window.dim.y);
-    pn_render_material_mesh.scissor_rect = f4_create(0,0,LONG_MAX,LONG_MAX);    
-    pn_render_material_mesh.id = material_count;
-    fmj_anycache_add_to_free_list(&asset_tables.materials,(void*)&material_count,&pn_render_material_mesh);    
-    material_count++;
+    render = fmj_render_init(ps);    
 
     //Camera setup
-    RenderCamera rc = {};
     rc.ot.p = f3_create(0,0,0);
     rc.ot.r = f3_axis_angle(f3_create(0,0,1),0);
     rc.ot.s = f3_create(1,1,1);
@@ -452,9 +376,9 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     FMJStretchBuffer* matrix_buffer = &asset_tables.matrix_buffer;
     u64 projection_matrix_id = fmj_stretch_buffer_push(matrix_buffer,(void*)&rc.projection_matrix);
     u64 rc_matrix_id = fmj_stretch_buffer_push(matrix_buffer,(void*)&rc.matrix);
+    rc.projection_matrix_id = projection_matrix_id;
     rc.matrix_id = rc_matrix_id;
-    
-    RenderCamera rc_ui = {};
+
     rc_ui.ot.p = f3_create(0,0,0);
     rc_ui.ot.r = f3_axis_angle(f3_create(0,0,1),0);
     rc_ui.ot.s = f3_create(1,1,1);
@@ -468,7 +392,6 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     //some memory setup
     u64 quad_mem_size = SIZE_OF_SPRITE_IN_BYTES * 100;
     u64 matrix_mem_size = (sizeof(f32) * 16) * 100;
-    GPUArena kart_gpu_arena = D12RendererCode::AllocateStaticGPUArena(quad_mem_size);
     
     GPUArena quad_gpu_arena = D12RendererCode::AllocateStaticGPUArena(quad_mem_size);
     GPUArena ui_quad_gpu_arena = D12RendererCode::AllocateStaticGPUArena(quad_mem_size);    
@@ -514,7 +437,8 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     bkg_child.children = fmj_stretch_buffer_init(1,sizeof(FMJUINode),8);
     bkg_child.type = fmj_ui_node_sprite;
 
-    ui_sprite.material_id = color_render_material.id;
+    FMJRenderMaterial ui_sprite_material = fmj_asset_get_material_by_id(&asset_ctx,1);
+    ui_sprite.material_id = ui_sprite_material.id;
     bkg_child.sprite = ui_sprite;
     
     FMJUINode title_child = {0};
@@ -528,161 +452,19 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     title_child.rect.z = 0;
     title_child.type = fmj_ui_node_sprite;
     ui_sprite.tex_id = 3;
+
+    FMJRenderMaterial base_render_material = fmj_asset_get_material_by_id(&asset_ctx,0);
     ui_sprite.material_id = base_render_material.id;
     title_child.sprite = ui_sprite;
     
     u64 ping_ui_id = fmj_stretch_buffer_push(&bkg_child.children,&title_child);
     u64 bkg_ui_id = fmj_stretch_buffer_push(&base_node.children,&bkg_child);    
 //end ui definition
-    
-//game object setup 
-    quaternion def_r = f3_axis_angle(f3_create(0,0,1),0);
-
-    f2  top_right_screen_xy = f2_create(ps->window.dim.x,ps->window.dim.y);
-    f2  bottom_left_xy = f2_create(0,0);
-
-    f3 max_screen_p = f3_screen_to_world_point(rc.projection_matrix,rc.matrix,ps->window.dim,top_right_screen_xy,0);
-    f3 lower_screen_p = f3_screen_to_world_point(rc.projection_matrix,rc.matrix,ps->window.dim,bottom_left_xy,0);
-
-
-    asset_ctx.scene_objects = fmj_stretch_buffer_init(100,sizeof(FMJSceneObject),8);
-    //NOTE(Ray):We should make it the largest size of al the gameobjects to use it with any game object.
-    asset_ctx.so_to_go = fmj_anycache_init(1024,sizeof(GOHandle),sizeof(FMJSceneObject*),false);
-
-    asset_ctx.asset_tables = &asset_tables;
-    asset_ctx.perm_mem = &permanent_strings;
-    asset_ctx.temp_mem = &temp_strings;    
-    InitSceneBuffer(&scenes);
-    u64 scene_id = CreateEmptyScene(&scenes);
-    FMJScene* test_scene = fmj_stretch_buffer_check_out(FMJScene,&scenes.buffer,scene_id);
-
-    FMJString object_name = fmj_string_create("Root Node",asset_ctx.perm_mem);
-    u64 root_node_id = AddSceneObject(&asset_ctx,&test_scene->buffer,f3_create_f(0),quaternion_identity(),f3_create_f(1),object_name);
-    FMJSceneObject* root_node = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,root_node_id);
-    fmj_scene_object_buffer_init(&root_node->children);
-    FMJ3DTrans root_t;
-    fmj_3dtrans_init(&root_t);
-    root_node->transform = root_t;
-    fmj_stretch_buffer_check_in(&asset_ctx.scene_objects);
-
-//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/BrainStem.glb",pn_render_material_mesh.id);
-//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/2CylinderEngine.glb",pn_render_material_mesh.id);
-    
-//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Box.glb",color_render_material_mesh.id);    
-//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Fox.glb",vu_render_material_mesh.id);
-//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Lantern.glb",color_render_material_mesh.id);
-    FMJAssetModelLoadResult track_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/track.glb",color_render_material_mesh.id);
-    FMJAssetModelLoadResult kart_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/kart.glb",color_render_material_mesh.id);        
-//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Duck.glb",color_render_material_mesh.id);
-//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/Avocado.glb",color_render_material_mesh.id);//scale is messed up and uvs    
-//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/BarramundiFish.glb",color_render_material_mesh.id);//    
-//    FMJAssetModelLoadResult test_model_result = fmj_asset_load_model_from_glb_2(&asset_ctx,"../data/models/BoxTextured.glb",color_render_material_mesh.id);
-    
-    //FMJAssetModel test_model = test_model_result.model;
-    //fmj_asset_upload_model(&asset_tables,&asset_ctx,&duck_model_result.model);
-
-    u64 track_instance_id = fmj_asset_create_model_instance(&asset_ctx,&track_model_result);
-    u64 kart_instance_id = fmj_asset_create_model_instance(&asset_ctx,&kart_model_result);    
-
-    FMJ3DTrans track_trans;
-    fmj_3dtrans_init(&track_trans);
-    track_trans.p = f3_create(0,0,0);
-    track_trans.r = f3_axis_angle(f3_create(0,0,1),0);
-    
-    FMJ3DTrans kart_trans;
-    fmj_3dtrans_init(&kart_trans);
-    kart_trans.p = f3_create(0,0.4f,-1);    
-    quaternion start_r = kart_trans.r;
-//    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,kart_instance_id,kart_trans);
-    
-    FMJ3DTrans duck_trans;
-    fmj_3dtrans_init(&duck_trans);
-    duck_trans.p = f3_create(-10,0,0);
-
-    fmj_3dtrans_init(&duck_trans);
-    duck_trans.p = f3_create(10,0,0);
-
-    fmj_3dtrans_init(&duck_trans);
-    duck_trans.p = f3_create(0,8,0);
-    
-    FMJSceneObject* track_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,track_instance_id);
-    track_so->name = fmj_string_create("track so",asset_ctx.perm_mem);
-    track_so->data = (u32*)go_type_kart;        
-    FMJSceneObject* kart_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,kart_instance_id);
-    kart_so->name = fmj_string_create("kart so",asset_ctx.perm_mem);
-    
-    u64 mesh_id;
-    u64 kart_mesh_id;
-    if(!fmj_asset_get_mesh_id_by_name("track",&asset_ctx,track_so,&mesh_id))
-    {
-        ASSERT(false);    
-    }
-    
-    if(!fmj_asset_get_mesh_id_by_name("kart",&asset_ctx,kart_so,&kart_mesh_id))
-    {
-        ASSERT(false);    
-    }
-    
-    FMJAssetMesh track_mesh = fmj_stretch_buffer_get(FMJAssetMesh,&asset_ctx.asset_tables->meshes,mesh_id);
-    FMJAssetMesh track_collision_mesh = track_mesh;
-    PhysicsShapeMesh track_physics_mesh = CreatePhysicsMeshShape(&track_mesh,physics_material);
-    PhysicsCode::SetQueryFilterData((PxShape*)track_physics_mesh.state,(u32)go_type_track);    
-    PhysicsCode::SetSimulationFilterData((PxShape*)track_physics_mesh.state,go_type_track,0xFF);
-            
-	track_collision_mesh.vertex_data   = (f32*)track_physics_mesh.tri_mesh->getVertices();
-	track_collision_mesh.vertex_count  = track_physics_mesh.tri_mesh->getNbVertices() * 3;
-
-    physx::PxTriangleMeshFlags mesh_flags = track_physics_mesh.tri_mesh->getTriangleMeshFlags();
-    if(mesh_flags & PxTriangleMeshFlag::Enum::e16_BIT_INDICES)
-    {
-        track_collision_mesh.index_component_size = fmj_asset_index_component_size_16;
-        track_collision_mesh.index_16_data = (u16*)track_physics_mesh.tri_mesh->getTriangles();
-        track_collision_mesh.index16_count = track_physics_mesh.tri_mesh->getNbTriangles() * 3;
-        track_collision_mesh.index_16_data_size = track_collision_mesh.index16_count * sizeof(u16);        
-    }
-    else
-    {
-        track_collision_mesh.index_component_size = fmj_asset_index_component_size_32;
-        track_collision_mesh.index_32_data = (u32*)track_physics_mesh.tri_mesh->getTriangles();
-        track_collision_mesh.index32_count = track_physics_mesh.tri_mesh->getNbTriangles() * 3;
-        track_collision_mesh.index_32_data_size = track_collision_mesh.index32_count * sizeof(u32);                
-    }
-
-    u64 tcm_id = fmj_stretch_buffer_push(&asset_ctx.asset_tables->meshes,&track_collision_mesh);
-    fmj_asset_upload_meshes(&asset_ctx,f2_create(tcm_id,tcm_id));
-
-    FMJSceneObject track_physics_so_ = {};
-    track_physics_so_.name = fmj_string_create("Track Physics",asset_ctx.perm_mem);
-    track_physics_so_.transform = kart_trans;
-    track_physics_so_.children.buffer = fmj_stretch_buffer_init(1,sizeof(u64),8);
-    track_physics_so_.m_id = track_so->m_id;
-    track_physics_so_.data = 0;
-    track_physics_so_.type = 1;
-    track_physics_so_.primitives_range = f2_create_f(tcm_id);
-    
-    u64 track_physics_id = fmj_stretch_buffer_push(&asset_ctx.scene_objects,&track_physics_so_);
-    
-    AddModelToSceneObjectAsChild(&asset_ctx,root_node_id,track_instance_id,track_physics_so_.transform);
-
-    PhysicsShapeBox phyx_box_shape = PhysicsCode::CreateBox(f3_create(1.2f,0.2f,1.2f),physics_material);
-        
-    RigidBody track_rbd = PhysicsCode::CreateStaticRigidbody(track_trans.p,track_physics_mesh.state);
-    u64* instance_id_ptr = (u64*)track_instance_id;
-    PhysicsCode::SetRigidBodyUserData(track_rbd,instance_id_ptr);
-    
-//    RigidBody kart_rbd = PhysicsCode::CreateDynamicRigidbody(kart_trans.p,phyx_box_shape.state,false);//kart_physics_mesh.state,true);
-
-    PhysicsCode::AddActorToScene(scene, track_rbd);    
-//    PhysicsCode::AddActorToScene(scene, kart_rbd);
-
-//    PhysicsCode::UpdateRigidBodyMassAndInertia(kart_rbd,1);
-//    PhysicsCode::SetMass(kart_rbd,1);
-    
-//end game object setup
 
     //ui  evaulation
     fmj_ui_evaluate_node(&base_node,&ui_state.hot_node_state);
-//    fmj_ui_commit_nodes_for_drawing(&sb_ui.arena,base_node,&ui_fixed_quad_buffer,white,uvs);
+
+    fmj_ui_commit_nodes_for_drawing(&sb_ui.arena,base_node,&ui_fixed_quad_buffer,white,uvs);    
 //end ui evaulation
 
     //upload data to gpu
@@ -704,16 +486,24 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     ui_quad_gpu_arena.resource->SetName(L"UI_QUADS_GPU_ARENA");    
 #endif
 //end up load data to gpu
-    
-    u32 tex_index = 0;
-    f32 angle = 0;    
 
-    f32 x_move = 0;
-    bool show_title = true;
-    f32 outer_angle_rot = 0;    
-    u32 tex_id;
-    f32 size_sin = 0;
-    game_state.current_player_id = 0;
+//BEGIN SCENE Management
+    InitSceneBuffer(&scenes);
+    u64 scene_id = CreateEmptyScene(&scenes);
+    FMJScene* test_scene = fmj_stretch_buffer_check_out(FMJScene,&scenes.buffer,scene_id);
+    FMJString object_name = fmj_string_create("Root Node",asset_ctx.perm_mem);
+    u64 root_node_id = AddSceneObject(&asset_ctx,&test_scene->buffer,f3_create_f(0),quaternion_identity(),f3_create_f(1),object_name);
+    FMJSceneObject* root_node = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,root_node_id);
+    fmj_scene_object_buffer_init(&root_node->children);
+    FMJ3DTrans root_t;
+    fmj_3dtrans_init(&root_t);
+    root_node->transform = root_t;    
+    fmj_stretch_buffer_check_in(&asset_ctx.scene_objects);
+
+    scene_manager = {0};
+    scene_manager.current_scene = test_scene;
+    scene_manager.root_node_id = root_node_id;
+//End Scene management
 
     bool show_demo_window = true;
     bool show_kart_editor = true;
@@ -725,30 +515,15 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
     fmj_editor_console_init(&console);
     console.is_showing = true;    
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
-    f32 tset_num = 0.005f;
-    //end game global  vars
 
-    //game global vars
-    CarFrameDescriptorBuffer car_descriptor_buffer;
-    CarFrameDescriptor d = {};
-    d.mass = 400;
-    d.max_thrust = 15000;
-    d.maximum_wheel_angle = 33;//degrees
-    //d.count = 1;
-    d.physics_material = physics_material;
-    d.parent_id = root_node_id;
-    d.physics_scene = scene;
-    d.model = kart_model_result;
-        
-//    d.type = CarFrameType.test;
-//    d.prefab = test_car_prefab;
-    car_descriptor_buffer.descriptors = fmj_stretch_buffer_init(1,sizeof(CarFrameDescriptor),8);
-    fmj_stretch_buffer_push(&car_descriptor_buffer.descriptors,&d);
+#ifdef KART_GAME
+    kart_game_setup(ps,rc,&asset_tables,permanent_strings,temp_strings);
+#else
+    two_d_test_game_setup(ps,rc,&asset_tables,permanent_strings,temp_strings);
+#endif
 
-    CarFrameBuffer car_frame_buffer = {};
-    kart_init_car_frames(&car_frame_buffer,car_descriptor_buffer,1,&asset_ctx);
+    u32 tex_index = 0;    
 
-    CarFrame player_car = fmj_stretch_buffer_get(CarFrame,&car_frame_buffer.car_frames,0);
     //game loop
     while(ps->is_running)
     {
@@ -758,6 +533,21 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
         PullGamePads(ps);
         PullTimeState(ps);
 //End pull
+#ifdef KART_GAME
+        kart_game_update(ps,rc,&asset_tables,permanent_strings,temp_strings);
+#else
+ two_d_test_game_update(ps,rc,&asset_tables,permanent_strings,temp_strings);
+#endif
+
+ #if 0
+        //stop showing title  after mouse button is pressed
+        if(ps->input.mouse.lmb.released)
+        {
+            show_title = false;
+//            fmj_ui_evaluate_on_node_recursively(&base_node,SetSpriteNonVisible);
+        }
+#endif
+        
         //EDITOR / IMGUI
  // Start the Dear ImGui frame
         ImGui_ImplDX12_NewFrame();
@@ -791,111 +581,27 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                 ImGui::EndMainMenuBar();            
             }
         }
+
         if(scene_tree.is_showing)
         {
 //            FMJSceneObject* start_node = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,root_node_id);                
-            fmj_editor_scene_tree_show(&scene_tree,test_scene,&asset_ctx);
+            fmj_editor_scene_tree_show(&scene_tree,scene_manager.current_scene,&asset_ctx);
 //            fmj_stretch_buffer_check_in(&asset_ctx.scene_objects);
         }
+        
         if(console.is_showing)
         {
             fmj_editor_console_show(&console,&asset_ctx);
         }
 
+        FMJFileReadResult read_result = fmj_file_platform_read_entire_file("curve1");
+        if(read_result.content_size > 0)
         {
-            FMJFileReadResult read_result = fmj_file_platform_read_entire_file("curve1");
-            if(read_result.content_size > 0)
-            {
-                FMJCurves* read_back_curves = (FMJCurves*)read_result.content;
-                f32 acr = fmj_animation_curve_evaluate(console.curves_output,-4.0f);
-                int a = 0;
-            }
+            FMJCurves* read_back_curves = (FMJCurves*)read_result.content;
+            f32 acr = fmj_animation_curve_evaluate(console.curves_output,-4.0f);
+            int a = 0;
         }
-        
         //END EDITOR IMGUI
-        
-//Game Code 
-        if(ps->input.keyboard.keys[keys.s].down)
-        {
-            ps->is_running = false;
-        }
-
-        //stop showing title  after mouse button is pressed
-        if(ps->input.mouse.lmb.released)
-        {
-            show_title = false;
-            fmj_ui_evaluate_on_node_recursively(&base_node,SetSpriteNonVisible);
-        }
-
-//        test_model_result.scene_object.transform.local_p = f3_create(0,-10,-25);
-//        test_model_result.scene_object.transform.local_r = f3_axis_angle(f3_create(0,0,1),angle);
-//        test_model_result.scene_object->transform.p = f3_create(0,-10,-25);
-//        root_node->transform.local_r = f3_axis_angle(f3_create(0,0,1),angle);
-        FMJSceneObject* track_physics_so = fmj_stretch_buffer_check_out(FMJSceneObject,&asset_ctx.scene_objects,track_physics_id);
-        
-        PxTransform pxt = ((PxRigidDynamic*)track_rbd.state)->getGlobalPose();
-        f3 new_p = f3_create(pxt.p.x,pxt.p.y,pxt.p.z);
-        quaternion new_r = quaternion_create(pxt.q.x,pxt.q.y,pxt.q.z,pxt.q.w);
-
-        track_physics_so->transform.local_p = new_p;
-        track_physics_so->transform.local_r = new_r;
-        fmj_stretch_buffer_check_in(&asset_ctx.scene_objects);
-        track_so->transform = track_physics_so->transform;
-
-#if 1
-        FMJCurves f16lc;
-        FMJCurves f16rlc;
-        FMJCurves sa_curve;
-        f3 input_axis = f3_create_f(0);
-
-        UpdateCarFrames(ps,&car_frame_buffer,f16lc,f16rlc,sa_curve,ps->time.delta_seconds,input_axis,scene,ps->time.delta_seconds);
-#endif
-
-//        track_so->transform.local_r = quaternion_mul(f3_axis_angle(f3_create(0,1,0),angle),start_r);
-//        track_so->transform.local_s = f3_create_f(100);        
-        //duck_child_3->transform.local_r = f3_axis_angle(f3_create(0,1,0),angle);
-        
-        //      track_so_2->transform.local_r = f3_axis_angle(f3_create(0,1,0),angle);        
-//        track_so->transform. = f3_create(-10,-10,-25);        
-//        track_so->transform.r = 
-        angle += 0.01f;
-        
-//        f4x4* tmt = fmj_stretch_buffer_check_out(f4x4,&matrix_buffer,test_mesh_model_matrix_id);        
-//        *tmt = test_mesh_t.m;
-
-        //modify camera matrix
-        f4x4* p_mat_ = fmj_stretch_buffer_check_out(f4x4,matrix_buffer,projection_matrix_id);
-#if 0
-        size.x = abs(sin(size_sin)) * 300;
-        size.y = abs(cos(size_sin)) * 300;
-        
-        size.x = clamp(size.x,150,300);
-        size.y = clamp(size.x,150,300);
-        size.x = size.x * aspect_ratio;
-        fmj_stretch_buffer_check_in(&asset_ctx.asset_tables->matrix_buffer);
-        size_sin += 0.001f;        
-        *p_mat_ = init_ortho_proj_matrix(size,0.0f,1.0f);
-#endif
-        f4x4 p_mat = *p_mat_;
-        p_mat_ = nullptr;
-        fmj_stretch_buffer_check_in(&asset_ctx.asset_tables->matrix_buffer);
-//end render camera modify
-
-//        SoundCode::ContinousPlay(&bgm_soundclip);
-//Render camera stated etc..  is finalized        
-
-//        fmj_camera_orbit(&asset_ctx,&rc,ps->input,ps->time.delta_seconds,kart_physics_so->transform,2);
-//        fmj_camera_orbit(&asset_ctx,&rc,ps->input,ps->time.delta_seconds,player_car.e->transform,2);
-//        f3 f = fmj_3dtrans_world_to_local_dir(&player_car.e->transform,player_car.e->transform.forward);
-
-//        f3 go = fmj_3dtrans_local_to_world_pos(&player_car.e->transform,f3_create(0,3,-3));
-//        f3 f = f3_mul_s(f3_negate(quaternion_forward(player_car.e->transform.r),3);
-        fmj_camera_chase(&asset_ctx,&rc,ps->input,ps->time.delta_seconds,player_car.e->transform,f3_create(0,3,0));
-        
-//        fmj_camera_chase(&asset_ctx,&rc,ps->input,ps->time.delta_seconds,player_car.e->transform,f3_create(f.x,f.y + 3,-f.z - 3));
-//        fmj_camera_free(&asset_ctx,&rc,ps->input,ps->time.delta_seconds);
-        
-//End game code
 
 //Render command creation(Render pass setup)
         UpdateScene(&asset_ctx,test_scene);
@@ -918,10 +624,11 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                 com.model_matrix_id = st.model_matrix_id;
                 com.camera_matrix_id = rc_matrix_id;
                 com.perspective_matrix_id = projection_matrix_id;
-                fmj_stretch_buffer_push(&render_command_buffer,(void*)&com);
+                fmj_stretch_buffer_push(&render.command_buffer,(void*)&com);
             }            
         }
 
+#if 0 
         for(int i = 0;i < ui_fixed_quad_buffer.count;++i)
         {
             FMJRenderCommand com = {};
@@ -940,22 +647,22 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
                 com.model_matrix_id = identity_matrix_id;
                 com.camera_matrix_id = identity_matrix_id;
                 com.perspective_matrix_id = screen_space_matrix_id;
-                fmj_stretch_buffer_push(&render_command_buffer,(void*)&com);
+                fmj_stretch_buffer_push(&render.command_buffer,(void*)&com);
             }
         }
-
+#endif
 //Render command setup end
 
 //Render commands issued to the render api
         bool has_update = false;
 
-        if(render_command_buffer.fixed.count > 0)
+        if(render.command_buffer.fixed.count > 0)
         {
             D12RendererCode::AddStartCommandListCommand();                            
             //screen space cam
-            for(int i = 0;i < render_command_buffer.fixed.count;++i)
+            for(int i = 0;i < render.command_buffer.fixed.count;++i)
             {
-                FMJRenderCommand command = fmj_stretch_buffer_get(FMJRenderCommand,&render_command_buffer,i);
+                FMJRenderCommand command = fmj_stretch_buffer_get(FMJRenderCommand,&render.command_buffer,i);
                 {
                     f4x4 m_mat = fmj_stretch_buffer_get(f4x4,matrix_buffer,command.model_matrix_id);
                     f4x4 c_mat = fmj_stretch_buffer_get(f4x4,matrix_buffer,command.camera_matrix_id);
@@ -1012,7 +719,6 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
             fmj_fixed_buffer_clear(&matrix_quad_buffer);
         }
 
-//        fmj_fixed_buffer_clear(&ui_fixed_quad_buffer);        
 //Command are finalized and rendering is started.        
  // TODO(Ray Garner): Add render targets commmand
 //        if(show_title)
@@ -1021,10 +727,10 @@ int WINAPI WinMain(HINSTANCE h_instance,HINSTANCE h_prev_instance, LPSTR lp_cmd_
 //Post frame work is done.
         D12RendererCode::EndFrame(g_pd3dSrvDescHeap);
 
-        fmj_stretch_buffer_clear(&render_command_buffer);
+        fmj_stretch_buffer_clear(&render.command_buffer);
 //END Render commands issued to the render api        
 
-        PhysicsCode::Update(&scene,1,ps->time.delta_seconds);                
+
         SoundCode::Update();
 
         HandleWindowsMessages(ps);        

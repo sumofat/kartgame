@@ -30,7 +30,6 @@ void fmj_editor_scene_tree_display_recursively(FMJSceneObject* so,FMJAssetContex
 
         if(is_tree_node)
         {
-
             if(ImGui::TreeNode("matrix"))
             {
                 static float vec4f[4] = { 0.10f, 0.20f, 0.30f, 0.44f };
@@ -75,30 +74,12 @@ void fmj_editor_scene_tree_display_recursively(FMJSceneObject* so,FMJAssetContex
 
             if(fmj_anycache_exist(&ctx->so_to_go,so))
             {
-                int a = 0;
-                if(ImGui::TreeNode("KART"))
-                {
-                    GOHandle handle = fmj_anycache_get(GOHandle,&ctx->so_to_go,so);
-                    CarFrame cf = fmj_stretch_buffer_get(CarFrame,handle.buffer,handle.index);
-                    
-                    ImGui::Text("KART Properties");
-                    ImGui::InputFloat3("thrust",cf.thrust_vector.xyz);
-                    ImGui::InputFloat3("velocity",cf.v.xyz);
-
-                    ImGui::Text("is_grounded %d ",(u32)cf.is_grounded);
-                    ImGui::InputFloat3("ground normal",cf.last_track_normal.xyz);
-                    ImGui::InputFloat3("foward",cf.e->transform.forward.xyz);
-                    
-                    ImGui::Text("ground speed %f",cf.indicated_ground_speed);
-                    ImGui::Text("last aos  %f",cf.last_aos);
-                    ImGui::Text("last aoa  %f",cf.last_aoa);
-                    ImGui::Text("repulse force area  %f",cf.repulsive_force_area);
-
-                    PxVec3 lin_vel = ((PxRigidBody*)cf.rb.state)->getLinearVelocity();
-                    
-                    ImGui::InputFloat3("phsyx LinVel",f3_create(lin_vel.x,lin_vel.y,lin_vel.z).xyz);                    
-                    ImGui::TreePop();                                        
-                }                
+//NOTE(Ray):Insert your gameobject specific nodes here
+#ifdef KART_GAME
+                kart_game_kart_properties_imgui(ctx,so);
+#else
+                two_d_test_game_properties_imgui(ctx,so);
+#endif
             }
 
             for(int i = 0;i < so->children.buffer.fixed.count;++i)

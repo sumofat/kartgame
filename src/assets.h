@@ -83,7 +83,7 @@ FMJAssetModel fmj_asset_load_model_from_glb(FMJAssetContext* ctx,const char* fil
 void fmj_asset_load_meshes_recursively_gltf_node_(FMJAssetModelLoadResult* result,cgltf_node* node,FMJAssetContext* ctx,const char* file_path,u32  material_id,FMJSceneObject* so);
 FMJAssetModelLoadResult fmj_asset_load_model_from_glb_2(FMJAssetContext* ctx,const char* file_path,u32  material_id,FMJSceneObjectBuffer* sob);
 void fmj_asset_upload_meshes(FMJAssetContext*ctx,f2 range);
-
+FMJRenderMaterial fmj_asset_get_material_by_id(FMJAssetContext* ctx,u64 mat_id);
 #define ASSETS_H
 #endif
 
